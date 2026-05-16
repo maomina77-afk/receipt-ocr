@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>レシートOCR家計簿</title>
+<title>レシートOCR</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
@@ -54,7 +54,7 @@
     background: #d32f2f;
   }
 
-  input, textarea {
+  input {
     width: 100%;
     padding: 10px;
     font-size: 16px;
@@ -70,14 +70,6 @@
     margin-top: 8px;
   }
 
-  pre {
-    background: #f7f7f7;
-    padding: 10px;
-    border-radius: 8px;
-    font-size: 13px;
-    white-space: pre-wrap;
-  }
-
   details summary {
     cursor: pointer;
     font-size: 15px;
@@ -85,33 +77,51 @@
     color: #1976d2;
   }
 
-  #editor {
+  /* 履歴カード */
+  .history-item {
+    margin-bottom: 16px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
     background: #fff;
-    padding: 16px;
-    border-radius: 12px;
-    margin-top: 12px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   }
 
-  /* iOS風オーバーレイカード */
-  #overlayCard {
+  .history-item img {
+    width: 100%;
+    max-width: 320px;
+    border-radius: 6px;
+    display: block;
+    margin-top: 4px;
+  }
+
+  .history-item pre {
+    background: #f7f7f7;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  /* iOS風スライドアップ編集ウインドウ */
+  #editOverlay {
     position: fixed;
     left: 0;
-    bottom: -400px; /* 初期は画面外 */
+    bottom: -80vh; /* 初期は画面外 */
     width: 100%;
-    background: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.95);
     backdrop-filter: blur(10px);
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
-    padding: 16px 16px 24px;
+    padding: 12px 16px 16px;
     box-sizing: border-box;
     transition: bottom 0.35s ease-out;
-    max-height: 60vh;
-    overflow-y: auto;
+    max-height: 80vh;
     z-index: 9999;
+    display: flex;
+    flex-direction: column;
   }
 
-  #overlayHandle {
+  #editHandle {
     width: 40px;
     height: 4px;
     border-radius: 999px;
@@ -119,29 +129,44 @@
     margin: 0 auto 8px;
   }
 
-  .candidate-card h3 {
-    margin-top: 0;
+  #editTitle {
     font-size: 16px;
+    font-weight: bold;
     margin-bottom: 8px;
+    text-align: center;
   }
 
-  .candidate-card p {
-    margin: 4px 0;
+  #editText {
+    flex: 1;
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    padding: 8px;
     font-size: 14px;
+    resize: none;
+    box-sizing: border-box;
+    white-space: pre-wrap;
   }
 
-  .candidate-card button {
-    margin-top: 12px;
+  #editButtons {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  #editButtons button {
+    flex: 1;
+    font-size: 15px;
+    padding: 10px;
   }
 </style>
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 </head>
 <body>
 
-<h1>📸 レシートOCR家計簿</h1>
+<h1>レシートOCR</h1>
 
 <div class="card">
   <h2>① APIキー設定</h2>
@@ -164,45 +189,21 @@
 </div>
 
 <div class="card">
-  <h2>④ OCR結果（最終JSON）</h2>
-  <pre id="output"></pre>
-</div>
-
-<div class="card">
-  <h2>⑤ 高度な操作</h2>
-  <button id="reparse" class="secondary">rawTextから再解析</button>
-  <button id="openEditor" class="secondary">手入力で補正</button>
-  <button id="downloadExcel" class="secondary">Excel家計簿をダウンロード</button>
-  <button id="downloadZip" class="secondary">ZIP（写真＋rawText＋parsed）</button>
-</div>
-
-<div class="card">
-  <h2>⑥ 履歴管理</h2>
-  <button id="saveHistory">このレシートを履歴に保存</button>
+  <h2>④ 履歴管理</h2>
   <button id="showHistory" class="secondary">履歴を表示</button>
+  <button id="downloadZip" class="secondary">ZIP（写真＋OCR全文）をダウンロード</button>
   <div id="history"></div>
 </div>
 
-<div id="editor" style="display:none;">
-  <h2>レシート編集</h2>
-  <label>日付:<input id="editDate"></label>
-  <label>時間:<input id="editTime"></label>
-  <label>店名:<input id="editShop"></label>
-  <label>合計金額:<input id="editTotal" type="number"></label>
-  <label>消費税率:<input id="editTaxRate"></label>
-  <label>消費税額:<input id="editTaxAmount" type="number"></label>
-  <label>支払い方法:<input id="editPayment"></label>
-  <label>明細(JSON):</label>
-  <textarea id="editItems" style="height:120px;"></textarea>
-
-  <button id="saveEdit" class="secondary">編集内容を反映</button>
-  <button id="closeEditor" class="danger">閉じる</button>
-</div>
-
-<!-- iOS風オーバーレイ候補カード -->
-<div id="overlayCard">
-  <div id="overlayHandle"></div>
-  <div id="candidateContainer"></div>
+<!-- OCR全文編集用スライドウインドウ -->
+<div id="editOverlay">
+  <div id="editHandle"></div>
+  <div id="editTitle">OCR結果を確認・修正</div>
+  <textarea id="editText" placeholder="ここにOCR結果が表示されます"></textarea>
+  <div id="editButtons">
+    <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
+    <button id="cancelEdit" class="danger">キャンセル</button>
+  </div>
 </div>
 
 <script src="app.js"></script>
