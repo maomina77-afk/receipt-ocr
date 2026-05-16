@@ -21,49 +21,95 @@ const canvas = document.getElementById("canvas");
 const output = document.getElementById("output");
 
 document.getElementById("start").onclick = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
-  });
-  video.srcObject = stream;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
+    video.srcObject = stream;
+  } catch (e) {
+    alert("カメラが使えません: " + e.message);
+  }
 };
 
-// 撮影してOCR
+// 撮影してOCR（スマホ向けに縮小してから送信）
 document.getElementById("capture").onclick = async () => {
   if (!GOOGLE_API_KEY) {
     alert("先にAPIキーを設定してください");
     return;
   }
 
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0);
+  if (!video.videoWidth || !video.videoHeight) {
+    alert("カメラがまだ準備できていません。少し待ってから再度お試しください。");
+    return;
+  }
 
-  const base64 = canvas.toDataURL("image/jpeg").split(",")[1];
+  const originalWidth = video.videoWidth;
+  const originalHeight = video.videoHeight;
 
-  output.textContent = "OCR中...";
+  const maxSize = 1024;
+  let targetWidth = originalWidth;
+  let targetHeight = originalHeight;
 
-  const response = await fetch(
-    `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_API_KEY}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        requests: [
-          {
-            image: { content: base64 },
-            features: [{ type: "TEXT_DETECTION" }]
-          }
-        ]
-      })
+  if (originalWidth > originalHeight) {
+    if (originalWidth > maxSize) {
+      targetWidth = maxSize;
+      targetHeight = Math.floor(originalHeight * (maxSize / originalWidth));
     }
-  );
+  } else {
+    if (originalHeight > maxSize) {
+      targetHeight = maxSize;
+      targetWidth = Math.floor(originalWidth * (maxSize / originalHeight));
+    }
+  }
 
-  const data = await response.json();
-  const text = data.responses[0].fullTextAnnotation.text;
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-  lastExtractedItems = extractItems(text);
+  const base64 = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
 
-  output.textContent = JSON.stringify(lastExtractedItems, null, 2);
+  output.textContent = "OCR中...（数秒かかります）";
+
+  try {
+    const response = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_API_KEY}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requests: [
+            {
+              image: { content: base64 },
+              features: [{ type: "TEXT_DETECTION" }]
+            }
+          ]
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!data.responses || !data.responses[0].fullTextAnnotation) {
+      console.log("Vision API response:", data);
+      output.textContent = "OCRに失敗しました。明るい場所で、レシートを画面いっぱいに撮影してみてください。";
+      lastExtractedItems = [];
+      return;
+    }
+
+    const text = data.responses[0].fullTextAnnotation.text;
+    console.log("OCR text:", text);
+
+    lastExtractedItems = extractItems(text);
+
+    if (lastExtractedItems.length === 0) {
+      output.textContent = "テキストは読み取れましたが、品名・数量・金額の形式が見つかりませんでした。\n\n--- OCRテキスト ---\n" + text;
+    } else {
+      output.textContent = JSON.stringify(lastExtractedItems, null, 2);
+    }
+  } catch (e) {
+    console.error(e);
+    output.textContent = "通信エラーが発生しました: " + e.message;
+  }
 };
 
 // 品名・数量・金額を抽出
@@ -71,10 +117,12 @@ function extractItems(text) {
   const lines = text.split("\n");
   const items = [];
 
+  // 例: 「牛乳 2 198」や「牛乳    2    198」など
   const itemRegex = /^(.+?)\s+(\d+)\s+(\d{1,3}(,\d{3})*|\d+)$/;
 
   for (const line of lines) {
-    const m = line.match(itemRegex);
+    const trimmed = line.trim();
+    const m = trimmed.match(itemRegex);
     if (m) {
       items.push({
         name: m[1].trim(),
@@ -89,8 +137,8 @@ function extractItems(text) {
 
 // 履歴保存
 document.getElementById("saveHistory").onclick = () => {
-  if (lastExtractedItems.length === 0) {
-    alert("抽出データがありません");
+  if (!lastExtractedItems || lastExtractedItems.length === 0) {
+    alert("保存できる抽出データがありません");
     return;
   }
 
