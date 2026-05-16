@@ -119,7 +119,9 @@ btnStart.onclick = async () => {
     const capabilities = currentTrack.getCapabilities();
 
     if (capabilities.zoom) {
-      zoomAreaCamera.style.display = "flex";
+      zoomAreaCamera.style.visibility = "visible";
+      zoomAreaCamera.style.opacity = "1";
+      zoomAreaCamera.style.pointerEvents = "auto";
 
       zoomSliderCamera.min = capabilities.zoom.min;
       zoomSliderCamera.max = capabilities.zoom.max;
@@ -172,7 +174,9 @@ btnStart.onclick = async () => {
 // 撮影 → プレビュー表示（Cropper.js）
 // =========================
 btnCapture.onclick = () => {
-  zoomAreaCamera.style.display = "none";
+  zoomAreaCamera.style.visibility = "hidden";
+  zoomAreaCamera.style.opacity = "0";
+  zoomAreaCamera.style.pointerEvents = "none";
 
   if (video.readyState < 2 || video.videoWidth === 0) {
     alert("カメラ準備中です。1〜2秒待ってからもう一度撮影してください。");
@@ -204,7 +208,10 @@ btnCapture.onclick = () => {
       autoCropArea: 1.0
     });
 
-    zoomAreaPreview.style.display = "flex";
+    zoomAreaPreview.style.visibility = "visible";
+    zoomAreaPreview.style.opacity = "1";
+    zoomAreaPreview.style.pointerEvents = "auto";
+
     zoomSliderPreview.value = zoomSliderCamera.value;
     zoomLabelPreview.textContent = zoomSliderCamera.value + "x";
   };
@@ -228,7 +235,9 @@ btnDoCrop.onclick = async () => {
   lastPhotoBase64 = dataUrl;
 
   previewArea.style.display = "none";
-  zoomAreaPreview.style.display = "none";
+  zoomAreaPreview.style.visibility = "hidden";
+  zoomAreaPreview.style.opacity = "0";
+  zoomAreaPreview.style.pointerEvents = "none";
 
   await ocrBase64(base64);
 };
@@ -238,7 +247,11 @@ btnDoCrop.onclick = async () => {
 // =========================
 btnCancelPreview.onclick = () => {
   previewArea.style.display = "none";
-  zoomAreaPreview.style.display = "none";
+
+  zoomAreaPreview.style.visibility = "hidden";
+  zoomAreaPreview.style.opacity = "0";
+  zoomAreaPreview.style.pointerEvents = "none";
+
   if (cropper) cropper.destroy();
   cropper = null;
 };
