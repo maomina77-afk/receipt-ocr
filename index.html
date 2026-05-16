@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>レシートOCR（Excel連携）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; padding: 10px; }
+    video, canvas { width: 100%; max-width: 400px; }
+    #output { white-space: pre-wrap; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<h1>レシートOCR → Excel保存（ローカル完結）</h1>
+
+<h3>① APIキー（config.json）を選択</h3>
+<input type="file" id="configFile" accept=".json">
+
+<h3>② カメラ操作</h3>
+<button id="start">カメラ起動</button>
+<button id="capture">撮影してOCR</button>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<h2>抽出結果</h2>
+<pre id="output"></pre>
+
+<button id="saveExcel">Excelに保存</button>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="excel.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
