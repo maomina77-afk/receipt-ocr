@@ -2,9 +2,11 @@
 // グローバル状態
 // =========================
 let GOOGLE_API_KEY = localStorage.getItem("GOOGLE_API_KEY") || "";
-let lastReceipt = null;   // 構造化データ
-let lastRawText = "";     // OCR全文
-let lastPhotoBase64 = ""; // 画像（dataURL）
+let lastReceipt = null;        // 最終確定JSON
+let lastRawText = "";          // OCR全文
+let lastPhotoBase64 = "";      // dataURL
+let lastCandidates = [];       // 候補一覧
+let currentCandidateIndex = 0; // 現在の候補
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -22,6 +24,9 @@ const btnCloseEditor = document.getElementById("closeEditor");
 const btnSaveEdit = document.getElementById("saveEdit");
 const btnDownloadExcel = document.getElementById("downloadExcel");
 const btnDownloadZip = document.getElementById("downloadZip");
+
+const overlayCard = document.getElementById("overlayCard");
+const candidateContainer = document.getElementById("candidateContainer");
 
 // =========================
 // 簡易ビープ音
@@ -41,13 +46,9 @@ function beep(success = true) {
       osc.stop();
       ctx.close();
     }, 150);
-  } catch (e) {
-    // 音が出せない環境は無視
-  }
+  } catch (e) {}
 }
 
-// =========================
-// ボタン状態制御（OCR中の色変更など）
 // =========================
 function setOcrBusy(isBusy) {
   const busyColor = "#f57c00";
@@ -79,7 +80,7 @@ function setOcrBusy(isBusy) {
 }
 
 // =========================
-// APIキー設定
+// APIキー
 // =========================
 btnSetApiKey.onclick = () => {
   const key = document.getElementById("apiKeyInput").value.trim();
@@ -93,7 +94,7 @@ btnSetApiKey.onclick = () => {
 };
 
 // =========================
-// カメラ起動（背面カメラ優先）
+// カメラ
 // =========================
 btnStart.onclick = async () => {
   try {
@@ -150,7 +151,48 @@ btnCapture.onclick = async () => {
 };
 
 // =========================
-// OCR共通処理（画像Base64→Vision API）
+// ファイル→OCR
+// =========================
+btnLoadFile.onclick = async () => {
+  const file = document.getElementById("fileInput").files[0];
+  if (!file) return alert("ファイルを選択してください");
+
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (!["jpg","jpeg","png"].includes(ext)) {
+    alert("今は画像ファイル(jpg/png)のみ対応にしています。");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const img = new Image();
+    img.onload = async () => {
+      const ctx = canvas.getContext("2d");
+      const maxSize = 1024;
+      let w = img.width;
+      let h = img.height;
+      if (w > h && w > maxSize) {
+        h = Math.floor(h * (maxSize / w));
+        w = maxSize;
+      } else if (h >= w && h > maxSize) {
+        w = Math.floor(w * (maxSize / h));
+        h = maxSize;
+      }
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      const base64 = dataUrl.split(",")[1];
+      lastPhotoBase64 = dataUrl;
+      await ocrBase64(base64);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+
+// =========================
+// OCR共通
 // =========================
 async function ocrBase64(base64) {
   if (!GOOGLE_API_KEY) {
@@ -190,16 +232,24 @@ async function ocrBase64(base64) {
     }
 
     let text = data.responses[0].fullTextAnnotation.text;
-    console.log("OCR raw text:", text);
-
     text = normalizeOcrText(text);
     lastRawText = text;
 
-    lastReceipt = parseReceipt(text);
-    output.textContent = JSON.stringify(lastReceipt, null, 2);
+    // 候補生成
+    lastCandidates = generateCandidates(text);
+    currentCandidateIndex = 0;
 
-    // 自動履歴保存（画像＋rawText＋parsed）
-    autoSaveHistory();
+    // オーバーレイ表示
+    if (lastCandidates.length > 0) {
+      showOverlay();
+      renderCandidate();
+    }
+
+    // とりあえず最初の候補を output に表示（確定前のプレビュー）
+    output.textContent = JSON.stringify(lastCandidates[0], null, 2);
+
+    // 自動履歴保存（rawTextのみ先に）
+    autoSaveHistory(false);
 
     beep(true);
   } catch (e) {
@@ -212,7 +262,7 @@ async function ocrBase64(base64) {
 }
 
 // =========================
-// OCR誤字補正（簡易）
+// OCR誤字補正
 // =========================
 function normalizeOcrText(text) {
   return text
@@ -220,36 +270,31 @@ function normalizeOcrText(text) {
     .replace(/Ｉ/g, "1")
     .replace(/O/g, "0")
     .replace(/〇/g, "0")
-    .replace(/￥/g, "¥")
-    .replace(/点/g, "")
-    .replace(/円/g, "");
+    .replace(/￥/g, "¥");
 }
 
 // =========================
-// メイン解析
+// 候補生成（最大情報）
 // =========================
-function parseReceipt(text) {
+function generateCandidates(text) {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l);
   const joined = lines.join(" ");
 
-  // 日付
   const dateMatch =
     joined.match(/(\d{4}年\d{1,2}月\d{1,2}日)/) ||
     joined.match(/(\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})/);
   const timeMatch = joined.match(/(\d{1,2}:\d{2})/);
 
-  // 店名（先頭数行から推定）
   let shop = "";
   for (let i = 0; i < Math.min(10, lines.length); i++) {
     const l = lines[i];
-    if (/コメリ|ALPLAZA|アル・プラザ|セブン-イレブン|SEIYU|西友|DAISO|ダイソー|valer|バロー|ENEOS|石油|SS|フレンドマート|守山駅東店|湖南石油/.test(l)) {
+    if (/コメリ|ALPLAZA|アル・プラザ|セブン-イレブン|SEIYU|西友|DAISO|ダイソー|valer|バロー|ENEOS|石油株式会社|SS|フレンドマート|守山駅東店/.test(l)) {
       shop = l;
       break;
     }
   }
   if (!shop && lines.length > 0) shop = lines[0];
 
-  // 合計
   let total = "";
   const totalRegexes = [
     /合計\s*¥?\s*(\d{1,3}(,\d{3})*|\d+)/,
@@ -264,7 +309,6 @@ function parseReceipt(text) {
     }
   }
 
-  // 税率・税額
   let taxRate = "";
   let taxAmount = "";
   const taxRateMatch = joined.match(/(\d+)\s*%/);
@@ -275,16 +319,15 @@ function parseReceipt(text) {
     joined.match(/内消費税[額等]*\s*[:：]?\s*¥?\s*(\d{1,3}(,\d{3})*|\d+)/);
   if (taxAmountMatch) taxAmount = taxAmountMatch[1].replace(/,/g, "");
 
-  // 支払い方法
   let payment = "";
   if (/クレジット|カード|VISA|MASTER|JCB|ルビットクレジット/i.test(joined)) payment = "クレジットカード";
   else if (/PayPay|楽天ペイ|電子マネー|Suica|PASMO|WAON|nanaco|HOPマネー/i.test(joined)) payment = "電子マネー/QR";
   else if (/現金/.test(joined)) payment = "現金";
 
-  // 明細（自動判別パーサー）
+  // 明細候補（ここはまだシンプルに1件代表）
   const items = extractItemsAuto(lines);
 
-  return {
+  const base = {
     date: dateMatch ? dateMatch[1] : "",
     time: timeMatch ? timeMatch[1] : "",
     shop,
@@ -294,10 +337,31 @@ function parseReceipt(text) {
     payment,
     items
   };
+
+  const candidates = [];
+
+  // 候補1：そのまま
+  candidates.push(JSON.parse(JSON.stringify(base)));
+
+  // 候補2：税率を10固定（よくあるパターン）
+  const c2 = JSON.parse(JSON.stringify(base));
+  if (!c2.taxRate && c2.total) c2.taxRate = "10";
+  candidates.push(c2);
+
+  // 候補3：合計を items の合計から再計算（将来拡張用）
+  const c3 = JSON.parse(JSON.stringify(base));
+  if (c3.items && c3.items.length > 0) {
+    const sum = c3.items.reduce((s, it) => s + (Number(it.price || 0) * (Number(it.qty || 1))), 0);
+    if (!c3.total) c3.total = sum;
+  }
+  candidates.push(c3);
+
+  // ここに、店別のバリエーション候補を増やしていける
+  return candidates;
 }
 
 // =========================
-// 店別＋汎用パーサー自動判別
+// 店別＋汎用アイテム抽出（簡易版）
 // =========================
 function extractItemsAuto(lines) {
   const joined = lines.join(" ");
@@ -313,27 +377,17 @@ function extractItemsAuto(lines) {
   return extractMultiLineItems(lines);
 }
 
-// =========================
-// コメリ（苗）
-// =========================
+// ---- 以下、店別パーサーは前回版を簡略流用 ----
 function parseKomeri(lines) {
   const items = [];
   let buffer = null;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-
     const m = line.match(/^(\d+)\s+(.+?)\s+(\d+本束|\d+本|.+束)$/);
     if (m) {
-      buffer = {
-        code: m[1],
-        name: m[2],
-        qty: m[3],
-        price: null
-      };
+      buffer = { code: m[1], name: m[2], qty: m[3], price: null };
       continue;
     }
-
     if (buffer && line.match(/^¥/)) {
       buffer.price = Number(line.replace(/[¥,\s]/g, ""));
       items.push(buffer);
@@ -343,27 +397,20 @@ function parseKomeri(lines) {
   return items;
 }
 
-// =========================
-// アルプラザ
-// =========================
 function parseAlplaza(lines) {
   const items = [];
   let buffer = null;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-
     if (!line.match(/^¥/) && !line.match(/小計|合計/)) {
       buffer = { name: line, qty: 1, price: null };
       continue;
     }
-
     const qtyLine = line.match(/(\d+)\s*[xX]\s*(\d+)/);
     if (buffer && qtyLine) {
       buffer.qty = Number(qtyLine[1]);
       continue;
     }
-
     if (buffer && line.match(/^¥/)) {
       buffer.price = Number(line.replace(/[¥,\s]/g, ""));
       items.push(buffer);
@@ -373,13 +420,9 @@ function parseAlplaza(lines) {
   return items;
 }
 
-// =========================
-// セブンイレブン
-// =========================
 function parseSeven(lines) {
   const items = [];
   let buffer = null;
-
   for (const lineRaw of lines) {
     const line = lineRaw.trim();
     if (!line.match(/^\*/)) {
@@ -397,13 +440,9 @@ function parseSeven(lines) {
   return items;
 }
 
-// =========================
-// 西友
-// =========================
 function parseSeiyu(lines) {
   const items = [];
   let buffer = null;
-
   for (const lineRaw of lines) {
     const line = lineRaw.trim();
     const m = line.match(/^(\d+)\s+(.+)/);
@@ -420,21 +459,15 @@ function parseSeiyu(lines) {
   return items;
 }
 
-// =========================
-// ダイソー
-// =========================
 function parseDaiso(lines) {
   const items = [];
   let buffer = null;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-
     if (!line.match(/^¥/) && !line.match(/^\d+点$/) && !line.match(/小計|合計|税/)) {
       buffer = { name: line, qty: 1, price: null };
       continue;
     }
-
     if (buffer && line.match(/^¥/)) {
       buffer.price = Number(line.replace(/[¥,\s外]/g, ""));
       items.push(buffer);
@@ -444,9 +477,6 @@ function parseDaiso(lines) {
   return items;
 }
 
-// =========================
-// バロー
-// =========================
 function parseValor(lines) {
   const items = [];
   for (const lineRaw of lines) {
@@ -464,9 +494,6 @@ function parseValor(lines) {
   return items;
 }
 
-// =========================
-// ENEOS（ガソリン）
-// =========================
 function parseEneos(lines) {
   const items = [];
   let fuelName = "";
@@ -474,7 +501,6 @@ function parseEneos(lines) {
   let carNo = "";
   let realNo = "";
   let shopName = "";
-
   for (const lineRaw of lines) {
     const line = lineRaw.trim();
     if (/レギュラー|ハイオク|軽油/.test(line)) fuelName = line;
@@ -483,7 +509,6 @@ function parseEneos(lines) {
     if (line.includes("実車番")) realNo = line.replace(/.*実車番/, "").trim();
     if (/石油株式会社|SS/.test(line)) shopName = line;
   }
-
   if (fuelName || qty) {
     items.push({
       code: "",
@@ -498,29 +523,22 @@ function parseEneos(lines) {
   return items;
 }
 
-// =========================
-// 多行汎用パーサー
-// =========================
 function extractMultiLineItems(lines) {
   const items = [];
   let buffer = null;
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-
     if (!line.match(/^¥/) && !line.match(/^小計/) && !line.match(/^合計/) && !line.match(/^\d+点/)) {
       if (!line.match(/領収書|領収証|レシート|TEL|電話|登録番号|ポイント|HOP|楽天|クレジット|PayPay|楽天ペイ/)) {
         buffer = { code: "", name: line, qty: 1, price: null };
       }
       continue;
     }
-
     const qtyMatch = line.match(/(\d+)\s*[xX]\s*(\d+)/);
     if (buffer && qtyMatch) {
       buffer.qty = Number(qtyMatch[1]);
       continue;
     }
-
     const priceMatch = line.match(/^¥?\s*(\d{1,3}(,\d{3})*|\d+)$/);
     if (buffer && priceMatch) {
       buffer.price = Number(priceMatch[1].replace(/,/g, ""));
@@ -529,46 +547,144 @@ function extractMultiLineItems(lines) {
       continue;
     }
   }
-
   return items;
 }
 
 // =========================
-// 履歴自動保存（撮影/ファイルOCRごと）
+// オーバーレイ表示制御
 // =========================
-function autoSaveHistory() {
-  if (!lastRawText) return;
+function showOverlay() {
+  overlayCard.style.bottom = "0px";
+}
 
+function hideOverlay() {
+  overlayCard.style.bottom = "-400px";
+}
+
+// =========================
+// 候補カード描画（L-1縦並び）
+// =========================
+function renderCandidate() {
+  if (!lastCandidates || lastCandidates.length === 0) return;
+  const c = lastCandidates[currentCandidateIndex];
+
+  candidateContainer.innerHTML = `
+    <div class="candidate-card">
+      <h3>候補 ${currentCandidateIndex + 1} / ${lastCandidates.length}</h3>
+      <p><b>日付：</b>${c.date || ""}</p>
+      <p><b>時間：</b>${c.time || ""}</p>
+      <p><b>店名：</b>${c.shop || ""}</p>
+      <p><b>合計金額：</b>${c.total ?? ""}</p>
+      <p><b>消費税率：</b>${c.taxRate || ""}</p>
+      <p><b>消費税額：</b>${c.taxAmount ?? ""}</p>
+      <p><b>支払い方法：</b>${c.payment || ""}</p>
+      <hr>
+      <p><b>明細：</b></p>
+      <pre style="background:#f7f7f7;border-radius:8px;padding:8px;font-size:12px;white-space:pre-wrap;">${JSON.stringify(c.items || [], null, 2)}</pre>
+      <button class="selectCandidate">この候補を採用</button>
+    </div>
+  `;
+
+  const btn = candidateContainer.querySelector(".selectCandidate");
+  if (btn) {
+    btn.onclick = () => confirmCandidate(c);
+  }
+}
+
+// =========================
+// スワイプ操作
+// =========================
+let startX = 0;
+
+overlayCard.addEventListener("touchstart", e => {
+  if (!e.touches || e.touches.length === 0) return;
+  startX = e.touches[0].clientX;
+});
+
+overlayCard.addEventListener("touchend", e => {
+  if (!e.changedTouches || e.changedTouches.length === 0) return;
+  const endX = e.changedTouches[0].clientX;
+  const diff = endX - startX;
+  if (diff > 50) {
+    // 右→左スワイプ（前の候補）
+    currentCandidateIndex = Math.max(0, currentCandidateIndex - 1);
+    renderCandidate();
+  } else if (diff < -50) {
+    // 左→右スワイプ（次の候補）
+    currentCandidateIndex = Math.min(lastCandidates.length - 1, currentCandidateIndex + 1);
+    renderCandidate();
+  }
+});
+
+// =========================
+// 候補確定 → JSON保存＋学習＋履歴更新
+// =========================
+function confirmCandidate(c) {
+  lastReceipt = c;
+  output.textContent = JSON.stringify(lastReceipt, null, 2);
+  saveLearningData(c);
+  autoSaveHistory(true);
+  hideOverlay();
+  beep(true);
+}
+
+// =========================
+// 学習データ保存（簡易：店名ごとに最後の候補を保存）
+// =========================
+function saveLearningData(c) {
+  if (!c || !c.shop) return;
+  const key = "receiptLearning";
+  const store = JSON.parse(localStorage.getItem(key) || "{}");
+  store[c.shop] = c;
+  localStorage.setItem(key, JSON.stringify(store));
+}
+
+// =========================
+// 再解析（rawText→候補再生成）
+// =========================
+btnReparse.onclick = () => {
+  if (!lastRawText) {
+    alert("再解析できるOCRテキストがありません");
+    return;
+  }
+  lastCandidates = generateCandidates(lastRawText);
+  currentCandidateIndex = 0;
+  if (lastCandidates.length > 0) {
+    showOverlay();
+    renderCandidate();
+    output.textContent = JSON.stringify(lastCandidates[0], null, 2);
+  }
+};
+
+// =========================
+// 自動履歴保存
+// =========================
+function autoSaveHistory(withParsed) {
   const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
   history.push({
     id: new Date().toISOString(),
     photo: lastPhotoBase64 || "",
     rawText: lastRawText,
-    parsed: lastReceipt
+    parsed: withParsed ? lastReceipt : null
   });
   localStorage.setItem("receiptHistory", JSON.stringify(history));
 }
 
-// =========================
-// 手動履歴保存ボタン（念のため残す）
-// =========================
+// 手動履歴保存
 btnSaveHistory.onclick = () => {
   if (!lastRawText) {
     alert("保存できるOCRデータがありません");
     return;
   }
-  autoSaveHistory();
+  autoSaveHistory(true);
   alert("写真＋OCR全文＋解析結果を保存しました");
 };
 
-// =========================
 // 履歴表示
-// =========================
 btnShowHistory.onclick = () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
   const container = document.getElementById("history");
   let html = "";
-
   history.forEach(h => {
     html += `
       <div style="margin-bottom:16px; padding:8px; border-radius:8px; border:1px solid #ddd;">
@@ -585,21 +701,7 @@ btnShowHistory.onclick = () => {
       </div>
     `;
   });
-
   container.innerHTML = html || "<p>履歴はまだありません。</p>";
-};
-
-// =========================
-// 再解析ボタン（rawText→parseReceipt）
-// =========================
-btnReparse.onclick = () => {
-  if (!lastRawText) {
-    alert("再解析できるOCRテキストがありません");
-    return;
-  }
-  lastReceipt = parseReceipt(lastRawText);
-  output.textContent = JSON.stringify(lastReceipt, null, 2);
-  alert("再解析しました");
 };
 
 // =========================
@@ -609,7 +711,7 @@ const editor = document.getElementById("editor");
 
 btnOpenEditor.onclick = () => {
   if (!lastReceipt) {
-    alert("編集できる解析結果がありません（まずOCR→解析してください）");
+    alert("編集できる解析結果がありません（まず候補を採用してください）");
     return;
   }
   document.getElementById("editDate").value = lastReceipt.date || "";
@@ -648,7 +750,7 @@ btnSaveEdit.onclick = () => {
 };
 
 // =========================
-// Excel家計簿出力（履歴全体）
+// Excel家計簿出力
 // =========================
 btnDownloadExcel.onclick = () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
@@ -705,7 +807,7 @@ btnDownloadExcel.onclick = () => {
 };
 
 // =========================
-// ZIP保存（日付フォルダ／写真＋rawText＋parsed）
+// ZIP保存
 // =========================
 btnDownloadZip.onclick = async () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
@@ -737,45 +839,4 @@ btnDownloadZip.onclick = async () => {
   a.href = url;
   a.download = "receipts_by_date.zip";
   a.click();
-};
-
-// =========================
-// ファイル読み込み（画像）
-// =========================
-btnLoadFile.onclick = async () => {
-  const file = document.getElementById("fileInput").files[0];
-  if (!file) return alert("ファイルを選択してください");
-
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (!["jpg","jpeg","png"].includes(ext)) {
-    alert("今は画像ファイル(jpg/png)のみ対応にしています。");
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = async e => {
-    const img = new Image();
-    img.onload = async () => {
-      const ctx = canvas.getContext("2d");
-      const maxSize = 1024;
-      let w = img.width;
-      let h = img.height;
-      if (w > h && w > maxSize) {
-        h = Math.floor(h * (maxSize / w));
-        w = maxSize;
-      } else if (h >= w && h > maxSize) {
-        w = Math.floor(w * (maxSize / h));
-        h = maxSize;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      ctx.drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      const base64 = dataUrl.split(",")[1];
-      lastPhotoBase64 = dataUrl;
-      await ocrBase64(base64);
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
 };

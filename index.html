@@ -5,7 +5,6 @@
 <title>レシートOCR家計簿</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- モダンUI用スタイル -->
 <style>
   body {
     font-family: "Segoe UI", sans-serif;
@@ -93,9 +92,49 @@
     margin-top: 12px;
     box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   }
+
+  /* iOS風オーバーレイカード */
+  #overlayCard {
+    position: fixed;
+    left: 0;
+    bottom: -400px; /* 初期は画面外 */
+    width: 100%;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(10px);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
+    padding: 16px 16px 24px;
+    box-sizing: border-box;
+    transition: bottom 0.35s ease-out;
+    max-height: 60vh;
+    overflow-y: auto;
+    z-index: 9999;
+  }
+
+  #overlayHandle {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.2);
+    margin: 0 auto 8px;
+  }
+
+  .candidate-card h3 {
+    margin-top: 0;
+    font-size: 16px;
+    margin-bottom: 8px;
+  }
+
+  .candidate-card p {
+    margin: 4px 0;
+    font-size: 14px;
+  }
+
+  .candidate-card button {
+    margin-top: 12px;
+  }
 </style>
 
-<!-- 必須ライブラリ -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
@@ -104,14 +143,12 @@
 
 <h1>📸 レシートOCR家計簿</h1>
 
-<!-- APIキー設定 -->
 <div class="card">
   <h2>① APIキー設定</h2>
   <input type="password" id="apiKeyInput" placeholder="Google Vision APIキーを入力">
   <button id="setApiKey">APIキーを設定</button>
 </div>
 
-<!-- カメラ -->
 <div class="card">
   <h2>② カメラ撮影</h2>
   <button id="start">カメラ起動</button>
@@ -120,20 +157,17 @@
   <canvas id="canvas" style="display:none;"></canvas>
 </div>
 
-<!-- ファイル読み込み -->
 <div class="card">
   <h2>③ ファイルから読み込む</h2>
   <input type="file" id="fileInput" accept=".jpg,.jpeg,.png">
   <button id="loadFile" class="secondary">画像ファイルをOCR</button>
 </div>
 
-<!-- OCR結果 -->
 <div class="card">
-  <h2>④ OCR結果</h2>
+  <h2>④ OCR結果（最終JSON）</h2>
   <pre id="output"></pre>
 </div>
 
-<!-- 高度な操作 -->
 <div class="card">
   <h2>⑤ 高度な操作</h2>
   <button id="reparse" class="secondary">rawTextから再解析</button>
@@ -142,7 +176,6 @@
   <button id="downloadZip" class="secondary">ZIP（写真＋rawText＋parsed）</button>
 </div>
 
-<!-- 履歴 -->
 <div class="card">
   <h2>⑥ 履歴管理</h2>
   <button id="saveHistory">このレシートを履歴に保存</button>
@@ -150,7 +183,6 @@
   <div id="history"></div>
 </div>
 
-<!-- 編集フォーム -->
 <div id="editor" style="display:none;">
   <h2>レシート編集</h2>
   <label>日付:<input id="editDate"></label>
@@ -165,6 +197,12 @@
 
   <button id="saveEdit" class="secondary">編集内容を反映</button>
   <button id="closeEditor" class="danger">閉じる</button>
+</div>
+
+<!-- iOS風オーバーレイ候補カード -->
+<div id="overlayCard">
+  <div id="overlayHandle"></div>
+  <div id="candidateContainer"></div>
 </div>
 
 <script src="app.js"></script>
