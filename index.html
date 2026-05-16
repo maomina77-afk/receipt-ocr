@@ -215,34 +215,39 @@
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas" style="display:none;"></canvas>
 
-<div id="zoomArea" style="
-  position: absolute;
-  right: 10px;
-  top: 500px;
-  height: 300px;
-  display: none;
-  z-index: 999;
-  writing-mode: bt-lr;
+<div style="position:relative;">
+  <video id="video" autoplay playsinline></video>
 
-">
-  <input id="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2"
-    style="
-      right:20px;
-      height: 300px;
-      -webkit-appearance: slider-vertical;
-      appearance: slider-vertical;
-      background: transparent;
-    ">
-  <div id="zoomLabel" style="
+  <div id="zoomArea" style="
     position:absolute;
-    top:30px;
-    right:20px;
-    background:rgba(0,0,0,0.6);
-    color:#fff;
-    padding:4px 8px;
-    border-radius:6px;
-    font-size:12px;
-  ">1.2x</div>
+    right:8px;
+    top:8px;
+    bottom:8px;
+    display:none;
+    z-index:10;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+  ">
+    <div id="zoomLabel" style="
+      background:rgba(0,0,0,0.6);
+      color:#fff;
+      padding:4px 8px;
+      border-radius:6px;
+      font-size:12px;
+      margin-bottom:6px;
+    ">1.2x</div>
+
+    <input id="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2"
+      style="
+        writing-mode: bt-lr;
+        -webkit-appearance: slider-vertical;
+        appearance: slider-vertical;
+        width: 30px;
+        height: 160px;
+      ">
+  </div>
 </div>
 
 </div>

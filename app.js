@@ -175,16 +175,13 @@ btnStart.onclick = async () => {
 btnCapture.onclick = () => {
   zoomArea.style.display = "none";
 
-  if (!video.videoWidth || !video.videoHeight) {
-    alert("カメラ準備中です。数秒待ってください。");
+  // まだ映像が来ていないときは弾く
+  if (!video.videoWidth || !video.videoHeight || video.readyState < 2) {
+    alert("カメラ準備中です。数秒待ってからもう一度撮影してください。");
     return;
   }
 
-  if (currentStream) {
-    currentStream.getTracks().forEach(t => t.stop());
-    currentStream = null;
-  }
-
+  // まずキャプチャ
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
@@ -193,16 +190,26 @@ btnCapture.onclick = () => {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   lastPhotoBase64 = dataUrl;
 
-  previewImage.src = dataUrl;
-  previewArea.style.display = "block";
+  // ストリーム停止は「キャプチャ後」にする
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+    currentTrack = null;
+  }
 
-  if (cropper) cropper.destroy();
-  cropper = new Cropper(previewImage, {
-    viewMode: 1,
-    dragMode: "move",
-    background: false,
-    autoCropArea: 1.0
-  });
+  // 画像読み込み完了してから Cropper を作る
+  previewImage.onload = () => {
+    previewArea.style.display = "block";
+
+    if (cropper) cropper.destroy();
+    cropper = new Cropper(previewImage, {
+      viewMode: 1,
+      dragMode: "move",
+      background: false,
+      autoCropArea: 1.0
+    });
+  };
+  previewImage.src = dataUrl;
 };
 
 // =========================
