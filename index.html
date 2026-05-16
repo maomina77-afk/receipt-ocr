@@ -214,7 +214,7 @@
   <button id="capture">撮影してOCR</button>
   <video id="video" autoplay playsinline></video>
   <canvas id="canvas" style="display:none;"></canvas>
-</div>
+
 <div id="zoomArea" style="
   position: absolute;
   right: 10px;
@@ -227,7 +227,7 @@
 ">
   <input id="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2"
     style="
-      width: 200px;
+      right:20;
       height: 300px;
       -webkit-appearance: slider-vertical;
       appearance: slider-vertical;
@@ -236,7 +236,7 @@
   <div id="zoomLabel" style="
     position:absolute;
     top:30px;
-    right:0;
+    right:200;
     background:rgba(0,0,0,0.6);
     color:#fff;
     padding:4px 8px;
@@ -245,7 +245,7 @@
   ">1.2x</div>
 </div>
 
-
+</div>
 <div class="card">
   <h2>③ ファイルから読み込む</h2>
   <input type="file" id="fileInput" accept=".jpg,.jpeg,.png">
