@@ -12,9 +12,13 @@ let currentTrack = null;
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 
-const zoomArea = document.getElementById("zoomArea");
-const zoomSlider = document.getElementById("zoomSlider");
-const zoomLabel = document.getElementById("zoomLabel");
+const zoomAreaCamera = document.getElementById("zoomAreaCamera");
+const zoomSliderCamera = document.getElementById("zoomSliderCamera");
+const zoomLabelCamera = document.getElementById("zoomLabelCamera");
+
+const zoomAreaPreview = document.getElementById("zoomAreaPreview");
+const zoomSliderPreview = document.getElementById("zoomSliderPreview");
+const zoomLabelPreview = document.getElementById("zoomLabelPreview");
 
 const btnSetApiKey = document.getElementById("setApiKey");
 const btnStart = document.getElementById("start");
@@ -23,7 +27,10 @@ const btnLoadFile = document.getElementById("loadFile");
 const btnShowHistory = document.getElementById("showHistory");
 const btnDownloadZip = document.getElementById("downloadZip");
 
+const fileInput = document.getElementById("fileInput");
+
 const previewArea = document.getElementById("previewArea");
+const previewContainer = document.getElementById("previewContainer");
 const previewImage = document.getElementById("previewImage");
 const btnDoCrop = document.getElementById("doCrop");
 const btnCancelPreview = document.getElementById("cancelPreview");
@@ -95,7 +102,7 @@ btnSetApiKey.onclick = () => {
 };
 
 // =========================
-// カメラ起動（ズーム対応＋ピンチズーム）
+// カメラ起動（ズーム＋ピンチ）
 // =========================
 btnStart.onclick = async () => {
   try {
@@ -108,57 +115,49 @@ btnStart.onclick = async () => {
     });
 
     video.srcObject = currentStream;
-
     currentTrack = currentStream.getVideoTracks()[0];
     const capabilities = currentTrack.getCapabilities();
 
-    // ズーム対応
     if (capabilities.zoom) {
-      zoomArea.style.display = "block";
+      zoomAreaCamera.style.display = "flex";
 
-      zoomSlider.min = capabilities.zoom.min;
-      zoomSlider.max = capabilities.zoom.max;
-      zoomSlider.step = capabilities.zoom.step || 0.1;
-      zoomSlider.value = 1.2; // 初期値
-      zoomLabel.textContent = "1.2x";
+      zoomSliderCamera.min = capabilities.zoom.min;
+      zoomSliderCamera.max = capabilities.zoom.max;
+      zoomSliderCamera.step = capabilities.zoom.step || 0.1;
 
-      currentTrack.applyConstraints({
-        advanced: [{ zoom: 1.2 }]
-      });
+      const initialZoom = Math.min(
+        capabilities.zoom.max,
+        Math.max(capabilities.zoom.min, 1.2)
+      );
+      zoomSliderCamera.value = initialZoom;
+      zoomLabelCamera.textContent = initialZoom.toFixed(1) + "x";
 
-      zoomSlider.oninput = () => {
-        const z = Number(zoomSlider.value);
-        zoomLabel.textContent = z.toFixed(1) + "x";
-        currentTrack.applyConstraints({
-          advanced: [{ zoom: z }]
-        });
+      currentTrack.applyConstraints({ advanced: [{ zoom: initialZoom }] });
+
+      zoomSliderCamera.oninput = () => {
+        const z = Number(zoomSliderCamera.value);
+        zoomLabelCamera.textContent = z.toFixed(1) + "x";
+        currentTrack.applyConstraints({ advanced: [{ zoom: z }] });
       };
 
-      // ピンチズーム
       let lastDistance = null;
-
       video.addEventListener("touchmove", e => {
-        if (e.touches.length === 2) {
+        if (e.touches.length === 2 && currentTrack) {
           const dx = e.touches[0].clientX - e.touches[1].clientX;
           const dy = e.touches[0].clientY - e.touches[1].clientY;
           const distance = Math.sqrt(dx * dx + dy * dy);
 
           if (lastDistance) {
             const diff = distance - lastDistance;
-            let newZoom = Number(zoomSlider.value) + diff * 0.005;
+            let newZoom = Number(zoomSliderCamera.value) + diff * 0.005;
             newZoom = Math.max(capabilities.zoom.min, Math.min(capabilities.zoom.max, newZoom));
-
-            zoomSlider.value = newZoom;
-            zoomLabel.textContent = newZoom.toFixed(1) + "x";
-
-            currentTrack.applyConstraints({
-              advanced: [{ zoom: newZoom }]
-            });
+            zoomSliderCamera.value = newZoom;
+            zoomLabelCamera.textContent = newZoom.toFixed(1) + "x";
+            currentTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
           }
           lastDistance = distance;
         }
       });
-
       video.addEventListener("touchend", () => {
         lastDistance = null;
       });
@@ -173,15 +172,13 @@ btnStart.onclick = async () => {
 // 撮影 → プレビュー表示（Cropper.js）
 // =========================
 btnCapture.onclick = () => {
-  zoomArea.style.display = "none";
+  zoomAreaCamera.style.display = "none";
 
-  // ★ ここが重要：video が完全に準備できていないと撮影しない
   if (video.readyState < 2 || video.videoWidth === 0) {
     alert("カメラ準備中です。1〜2秒待ってからもう一度撮影してください。");
     return;
   }
 
-  // 撮影
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
@@ -190,14 +187,12 @@ btnCapture.onclick = () => {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   lastPhotoBase64 = dataUrl;
 
-  // ★ 撮影後にストリーム停止（ここも重要）
   if (currentStream) {
     currentStream.getTracks().forEach(t => t.stop());
     currentStream = null;
     currentTrack = null;
   }
 
-  // ★ Cropper は画像読み込み完了後に初期化
   previewImage.onload = () => {
     previewArea.style.display = "block";
 
@@ -208,6 +203,10 @@ btnCapture.onclick = () => {
       background: false,
       autoCropArea: 1.0
     });
+
+    zoomAreaPreview.style.display = "flex";
+    zoomSliderPreview.value = zoomSliderCamera.value;
+    zoomLabelPreview.textContent = zoomSliderCamera.value + "x";
   };
 
   previewImage.src = dataUrl;
@@ -229,6 +228,7 @@ btnDoCrop.onclick = async () => {
   lastPhotoBase64 = dataUrl;
 
   previewArea.style.display = "none";
+  zoomAreaPreview.style.display = "none";
 
   await ocrBase64(base64);
 };
@@ -238,8 +238,28 @@ btnDoCrop.onclick = async () => {
 // =========================
 btnCancelPreview.onclick = () => {
   previewArea.style.display = "none";
+  zoomAreaPreview.style.display = "none";
   if (cropper) cropper.destroy();
   cropper = null;
+};
+
+// =========================
+// ファイルからOCR
+// =========================
+btnLoadFile.onclick = () => {
+  if (!fileInput.files || fileInput.files.length === 0) {
+    alert("画像ファイルを選択してください");
+    return;
+  }
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = e => {
+    const dataUrl = e.target.result;
+    lastPhotoBase64 = dataUrl;
+    const base64 = dataUrl.split(",")[1];
+    ocrBase64(base64);
+  };
+  reader.readAsDataURL(file);
 };
 
 // =========================
@@ -316,9 +336,6 @@ function closeEditOverlay() {
   editOverlay.style.bottom = "-80vh";
 }
 
-// =========================
-// 編集確定 → 履歴保存
-// =========================
 btnConfirmEdit.onclick = () => {
   const fixedText = editText.value.trim();
   if (!fixedText) {
@@ -333,7 +350,6 @@ btnConfirmEdit.onclick = () => {
   alert("履歴に保存しました。");
 };
 
-// キャンセル
 btnCancelEdit.onclick = () => {
   closeEditOverlay();
 };
@@ -389,7 +405,7 @@ btnDownloadZip.onclick = async () => {
 
   const zip = new JSZip();
 
-  history.forEach((h, idx) => {
+  history.forEach(h => {
     const folder = zip.folder(`${h.id.replace(/[\/:]/g, "-")}`);
 
     if (h.photo) {

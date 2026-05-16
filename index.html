@@ -5,7 +5,7 @@
 <title>レシートOCR</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Cropper.js（標準UI） -->
+<!-- Cropper.js -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 
@@ -32,12 +32,6 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   }
 
-  .card h2 {
-    font-size: 18px;
-    margin-bottom: 12px;
-    color: #444;
-  }
-
   button {
     width: 100%;
     padding: 14px;
@@ -50,13 +44,8 @@
     font-weight: bold;
   }
 
-  button.secondary {
-    background: #555;
-  }
-
-  button.danger {
-    background: #d32f2f;
-  }
+  button.secondary { background:#555; }
+  button.danger { background:#d32f2f; }
 
   input {
     width: 100%;
@@ -65,16 +54,62 @@
     margin: 6px 0;
     border-radius: 6px;
     border: 1px solid #ccc;
-    box-sizing: border-box;
   }
 
-  video, canvas {
+  /* カメラコンテナ（ズームUIの基準） */
+  #cameraContainer {
+    position: relative;
+    width: 100%;
+  }
+
+  #video {
     width: 100%;
     border-radius: 10px;
-    margin-top: 8px;
+    background: #000;
   }
 
-  /* 撮影後のプレビュー（全画面） */
+  /* カメラ時のズームUI */
+  #zoomAreaCamera {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: none;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* プレビュー時のズームUI */
+  #zoomAreaPreview {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: none;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .zoomLabel {
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .zoomSlider {
+    writing-mode: bt-lr;
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    width: 30px;
+    height: 180px;
+  }
+
+  /* プレビュー全画面 */
   #previewArea {
     display: none;
     position: fixed;
@@ -84,7 +119,12 @@
     height: 100%;
     background: #000;
     z-index: 9998;
-    overflow: hidden;
+  }
+
+  #previewContainer {
+    position: relative;
+    width: 100%;
+    height: 100%;
   }
 
   #previewImage {
@@ -104,12 +144,6 @@
     box-sizing: border-box;
   }
 
-  #previewButtons button {
-    flex: 1;
-    padding: 14px;
-    font-size: 16px;
-  }
-
   /* 履歴 */
   .history-item {
     margin-bottom: 16px;
@@ -127,15 +161,7 @@
     margin-top: 4px;
   }
 
-  .history-item pre {
-    background: #f7f7f7;
-    border-radius: 8px;
-    padding: 8px;
-    font-size: 12px;
-    white-space: pre-wrap;
-  }
-
-  /* 編集ボトムシート（ドラッグ可変） */
+  /* 編集ボトムシート */
   #editOverlay {
     position: fixed;
     left: 0;
@@ -152,22 +178,6 @@
     z-index: 9999;
     display: flex;
     flex-direction: column;
-    touch-action: none;
-  }
-
-  #editHandle {
-    width: 40px;
-    height: 4px;
-    border-radius: 999px;
-    background: rgba(0,0,0,0.2);
-    margin: 0 auto 8px;
-  }
-
-  #editTitle {
-    font-size: 16px;
-    font-weight: bold;
-    margin-bottom: 8px;
-    text-align: center;
   }
 
   #editText {
@@ -178,20 +188,7 @@
     padding: 8px;
     font-size: 14px;
     resize: none;
-    box-sizing: border-box;
     white-space: pre-wrap;
-  }
-
-  #editButtons {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  #editButtons button {
-    flex: 1;
-    font-size: 15px;
-    padding: 10px;
   }
 </style>
 
@@ -210,53 +207,23 @@
 
 <div class="card">
   <h2>② カメラ撮影</h2>
+
   <button id="start">カメラ起動</button>
   <button id="capture">撮影してOCR</button>
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas" style="display:none;"></canvas>
 
-<div id="cameraContainer" style="position:relative; width:100%;">
+  <div id="cameraContainer">
+    <video id="video" autoplay playsinline></video>
 
-  <video id="video" autoplay playsinline style="
-    width:100%;
-    border-radius:10px;
-    background:#000;
-  "></video>
-
-  <!-- ズームUI（video の右側に固定） -->
-  <div id="zoomArea" style="
-    position:absolute;
-    top:10px;
-    right:10px;
-    display:none;
-    z-index:20;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-  ">
-    <div id="zoomLabel" style="
-      background:rgba(0,0,0,0.6);
-      color:#fff;
-      padding:4px 8px;
-      border-radius:6px;
-      font-size:12px;
-      margin-bottom:6px;
-    ">1.2x</div>
-
-    <input id="zoomSlider" type="range"
-      min="1" max="5" step="0.1" value="1.2"
-      style="
-        writing-mode: bt-lr;
-        -webkit-appearance: slider-vertical;
-        appearance: slider-vertical;
-        width:30px;
-        height:180px;
-      ">
+    <!-- カメラ時のズームUI -->
+    <div id="zoomAreaCamera">
+      <div id="zoomLabelCamera" class="zoomLabel">1.2x</div>
+      <input id="zoomSliderCamera" class="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2">
+    </div>
   </div>
 
+  <canvas id="canvas" style="display:none;"></canvas>
 </div>
 
-</div>
 <div class="card">
   <h2>③ ファイルから読み込む</h2>
   <input type="file" id="fileInput" accept=".jpg,.jpeg,.png">
@@ -270,24 +237,29 @@
   <div id="history"></div>
 </div>
 
-<!-- 撮影後プレビュー（全画面） -->
+<!-- 撮影後プレビュー -->
 <div id="previewArea">
-  <img id="previewImage">
+  <div id="previewContainer">
+    <img id="previewImage">
+
+    <!-- プレビュー時のズームUI -->
+    <div id="zoomAreaPreview">
+      <div id="zoomLabelPreview" class="zoomLabel">1.2x</div>
+      <input id="zoomSliderPreview" class="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2">
+    </div>
+  </div>
+
   <div id="previewButtons">
     <button id="doCrop" style="background:#1976d2;color:#fff;">OCRする</button>
     <button id="cancelPreview" class="danger">キャンセル</button>
   </div>
 </div>
 
-<!-- OCR全文編集用ボトムシート -->
+<!-- OCR編集ボトムシート -->
 <div id="editOverlay">
-  <div id="editHandle"></div>
-  <div id="editTitle">OCR結果を確認・修正</div>
   <textarea id="editText"></textarea>
-  <div id="editButtons">
-    <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
-    <button id="cancelEdit" class="danger">キャンセル</button>
-  </div>
+  <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
+  <button id="cancelEdit" class="danger">キャンセル</button>
 </div>
 
 <script src="app.js"></script>
