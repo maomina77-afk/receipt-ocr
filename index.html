@@ -5,6 +5,10 @@
 <title>レシートOCR</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
+<!-- Cropper.js（標準UI） -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
 <style>
   body {
     font-family: "Segoe UI", sans-serif;
@@ -70,14 +74,43 @@
     margin-top: 8px;
   }
 
-  details summary {
-    cursor: pointer;
-    font-size: 15px;
-    padding: 6px 0;
-    color: #1976d2;
+  /* 撮影後のプレビュー（全画面） */
+  #previewArea {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 9998;
+    overflow: hidden;
   }
 
-  /* 履歴カード */
+  #previewImage {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    margin: auto;
+  }
+
+  #previewButtons {
+    position: fixed;
+    bottom: 20px;
+    width: 100%;
+    display: flex;
+    gap: 10px;
+    padding: 0 20px;
+    box-sizing: border-box;
+  }
+
+  #previewButtons button {
+    flex: 1;
+    padding: 14px;
+    font-size: 16px;
+  }
+
+  /* 履歴 */
   .history-item {
     margin-bottom: 16px;
     padding: 8px;
@@ -102,11 +135,11 @@
     white-space: pre-wrap;
   }
 
-  /* iOS風スライドアップ編集ウインドウ */
+  /* 編集ボトムシート（ドラッグ可変） */
   #editOverlay {
     position: fixed;
     left: 0;
-    bottom: -80vh; /* 初期は画面外 */
+    bottom: -80vh;
     width: 100%;
     background: rgba(255,255,255,0.95);
     backdrop-filter: blur(10px);
@@ -114,11 +147,12 @@
     box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
     padding: 12px 16px 16px;
     box-sizing: border-box;
-    transition: bottom 0.35s ease-out;
+    transition: bottom 0.25s ease-out;
     max-height: 80vh;
     z-index: 9999;
     display: flex;
     flex-direction: column;
+    touch-action: none;
   }
 
   #editHandle {
@@ -195,11 +229,20 @@
   <div id="history"></div>
 </div>
 
-<!-- OCR全文編集用スライドウインドウ -->
+<!-- 撮影後プレビュー（全画面） -->
+<div id="previewArea">
+  <img id="previewImage">
+  <div id="previewButtons">
+    <button id="doCrop" style="background:#1976d2;color:#fff;">OCRする</button>
+    <button id="cancelPreview" class="danger">キャンセル</button>
+  </div>
+</div>
+
+<!-- OCR全文編集用ボトムシート -->
 <div id="editOverlay">
   <div id="editHandle"></div>
   <div id="editTitle">OCR結果を確認・修正</div>
-  <textarea id="editText" placeholder="ここにOCR結果が表示されます"></textarea>
+  <textarea id="editText"></textarea>
   <div id="editButtons">
     <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
     <button id="cancelEdit" class="danger">キャンセル</button>

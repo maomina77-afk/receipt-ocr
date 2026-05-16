@@ -4,7 +4,10 @@
 let GOOGLE_API_KEY = localStorage.getItem("GOOGLE_API_KEY") || "";
 let lastRawText = "";
 let lastPhotoBase64 = "";
+let cropper = null;
+let currentStream = null;
 
+// DOM取得
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 
@@ -15,13 +18,18 @@ const btnLoadFile = document.getElementById("loadFile");
 const btnShowHistory = document.getElementById("showHistory");
 const btnDownloadZip = document.getElementById("downloadZip");
 
+const previewArea = document.getElementById("previewArea");
+const previewImage = document.getElementById("previewImage");
+const btnDoCrop = document.getElementById("doCrop");
+const btnCancelPreview = document.getElementById("cancelPreview");
+
 const editOverlay = document.getElementById("editOverlay");
 const editText = document.getElementById("editText");
 const btnConfirmEdit = document.getElementById("confirmEdit");
 const btnCancelEdit = document.getElementById("cancelEdit");
 
 // =========================
-// 簡易ビープ音
+// ビープ音
 // =========================
 function beep(success = true) {
   try {
@@ -49,32 +57,26 @@ function setOcrBusy(isBusy) {
   const normalColor = "#1976d2";
 
   if (isBusy) {
-    if (btnCapture) {
-      btnCapture.style.backgroundColor = busyColor;
-      btnCapture.textContent = "OCR中…";
-      btnCapture.disabled = true;
-    }
-    if (btnLoadFile) {
-      btnLoadFile.style.backgroundColor = busyColor;
-      btnLoadFile.textContent = "OCR中…";
-      btnLoadFile.disabled = true;
-    }
+    btnCapture.style.backgroundColor = busyColor;
+    btnCapture.textContent = "OCR中…";
+    btnCapture.disabled = true;
+
+    btnLoadFile.style.backgroundColor = busyColor;
+    btnLoadFile.textContent = "OCR中…";
+    btnLoadFile.disabled = true;
   } else {
-    if (btnCapture) {
-      btnCapture.style.backgroundColor = normalColor;
-      btnCapture.textContent = "撮影してOCR";
-      btnCapture.disabled = false;
-    }
-    if (btnLoadFile) {
-      btnLoadFile.style.backgroundColor = "#555";
-      btnLoadFile.textContent = "画像ファイルをOCR";
-      btnLoadFile.disabled = false;
-    }
+    btnCapture.style.backgroundColor = normalColor;
+    btnCapture.textContent = "撮影してOCR";
+    btnCapture.disabled = false;
+
+    btnLoadFile.style.backgroundColor = "#555";
+    btnLoadFile.textContent = "画像ファイルをOCR";
+    btnLoadFile.disabled = false;
   }
 }
 
 // =========================
-// APIキー
+// APIキー設定
 // =========================
 btnSetApiKey.onclick = () => {
   const key = document.getElementById("apiKeyInput").value.trim();
@@ -88,109 +90,107 @@ btnSetApiKey.onclick = () => {
 };
 
 // =========================
-// カメラ起動
+// カメラ起動（ズーム対応）
 // =========================
 btnStart.onclick = async () => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" }
+    currentStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
     });
-    video.srcObject = stream;
+
+    video.srcObject = currentStream;
+
+    // ズーム対応（可能な端末のみ）
+    const track = currentStream.getVideoTracks()[0];
+    const capabilities = track.getCapabilities();
+    if (capabilities.zoom) {
+      track.applyConstraints({
+        advanced: [{ zoom: capabilities.zoom.min }]
+      });
+    }
+
   } catch (e) {
     alert("カメラが使えません: " + e.message);
   }
 };
 
 // =========================
-// 撮影→OCR
+// 撮影 → プレビュー表示（Cropper.js）
 // =========================
-btnCapture.onclick = async () => {
-  if (!GOOGLE_API_KEY) {
-    alert("先にAPIキーを設定してください");
-    return;
-  }
+btnCapture.onclick = () => {
   if (!video.videoWidth || !video.videoHeight) {
-    alert("カメラ準備中です。数秒待ってから再度お試しください。");
+    alert("カメラ準備中です。数秒待ってください。");
     return;
   }
 
-  const originalWidth = video.videoWidth;
-  const originalHeight = video.videoHeight;
-  const maxSize = 1024;
-  let targetWidth = originalWidth;
-  let targetHeight = originalHeight;
-
-  if (originalWidth > originalHeight) {
-    if (originalWidth > maxSize) {
-      targetWidth = maxSize;
-      targetHeight = Math.floor(originalHeight * (maxSize / originalWidth));
-    }
-  } else {
-    if (originalHeight > maxSize) {
-      targetHeight = maxSize;
-      targetWidth = Math.floor(originalWidth * (maxSize / originalHeight));
-    }
+  // カメラ停止
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
   }
 
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
+  // 撮影
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+  ctx.drawImage(video, 0, 0);
 
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  lastPhotoBase64 = dataUrl;
+
+  // プレビュー表示
+  previewImage.src = dataUrl;
+  previewArea.style.display = "block";
+
+  // Cropper.js 初期化
+  if (cropper) cropper.destroy();
+  cropper = new Cropper(previewImage, {
+    viewMode: 1,
+    dragMode: "move",
+    background: false,
+    autoCropArea: 1.0
+  });
+};
+
+// =========================
+// プレビュー → OCR実行
+// =========================
+btnDoCrop.onclick = async () => {
+  if (!cropper) return;
+
+  const croppedCanvas = cropper.getCroppedCanvas({
+    maxWidth: 1024,
+    maxHeight: 1024
+  });
+
+  const dataUrl = croppedCanvas.toDataURL("image/jpeg", 0.9);
   const base64 = dataUrl.split(",")[1];
   lastPhotoBase64 = dataUrl;
+
+  previewArea.style.display = "none";
 
   await ocrBase64(base64);
 };
 
 // =========================
-// ファイル→OCR
+// プレビューキャンセル
 // =========================
-btnLoadFile.onclick = async () => {
-  const file = document.getElementById("fileInput").files[0];
-  if (!file) return alert("ファイルを選択してください");
-
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (!["jpg","jpeg","png"].includes(ext)) {
-    alert("今は画像ファイル(jpg/png)のみ対応にしています。");
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = async e => {
-    const img = new Image();
-    img.onload = async () => {
-      const ctx = canvas.getContext("2d");
-      const maxSize = 1024;
-      let w = img.width;
-      let h = img.height;
-      if (w > h && w > maxSize) {
-        h = Math.floor(h * (maxSize / w));
-        w = maxSize;
-      } else if (h >= w && h > maxSize) {
-        w = Math.floor(w * (maxSize / h));
-        h = maxSize;
-      }
-      canvas.width = w;
-      canvas.height = h;
-      ctx.drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      const base64 = dataUrl.split(",")[1];
-      lastPhotoBase64 = dataUrl;
-      await ocrBase64(base64);
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+btnCancelPreview.onclick = () => {
+  previewArea.style.display = "none";
+  if (cropper) cropper.destroy();
+  cropper = null;
 };
 
 // =========================
-// OCR共通
+// OCR実行
 // =========================
 async function ocrBase64(base64) {
   if (!GOOGLE_API_KEY) {
-    alert("先にAPIキーを設定してください");
+    alert("APIキーを設定してください");
     return;
   }
 
@@ -215,11 +215,8 @@ async function ocrBase64(base64) {
 
     const data = await response.json();
     if (!data.responses || !data.responses[0].fullTextAnnotation) {
-      console.log("Vision API response:", data);
-      alert("OCRに失敗しました。明るい場所で、レシートを画面いっぱいに撮影してください。");
-      lastRawText = "";
+      alert("OCRに失敗しました。");
       beep(false);
-      setOcrBusy(false);
       return;
     }
 
@@ -227,12 +224,11 @@ async function ocrBase64(base64) {
     text = normalizeOcrText(text);
     lastRawText = text;
 
-    // 編集ウインドウに表示
     openEditOverlay(text);
     beep(true);
+
   } catch (e) {
-    console.error(e);
-    alert("通信エラーが発生しました: " + e.message);
+    alert("通信エラー: " + e.message);
     beep(false);
   } finally {
     setOcrBusy(false);
@@ -240,7 +236,7 @@ async function ocrBase64(base64) {
 }
 
 // =========================
-// OCR誤字の軽い補正
+// OCR誤字補正
 // =========================
 function normalizeOcrText(text) {
   return text
@@ -252,10 +248,10 @@ function normalizeOcrText(text) {
 }
 
 // =========================
-// 編集スライドウインドウ制御
+// 編集ボトムシート
 // =========================
 function openEditOverlay(text) {
-  editText.value = text || "";
+  editText.value = text;
   editOverlay.style.bottom = "0px";
 }
 
@@ -263,17 +259,40 @@ function closeEditOverlay() {
   editOverlay.style.bottom = "-80vh";
 }
 
-// 確定して履歴に保存
+// ドラッグで高さ可変
+let startY = 0;
+let startBottom = 0;
+
+editOverlay.addEventListener("touchstart", e => {
+  startY = e.touches[0].clientY;
+  startBottom = parseInt(editOverlay.style.bottom);
+});
+
+editOverlay.addEventListener("touchmove", e => {
+  const diff = startY - e.touches[0].clientY;
+  let newBottom = startBottom + diff;
+
+  if (newBottom < -80) newBottom = -80;
+  if (newBottom > window.innerHeight * 0.1) newBottom = window.innerHeight * 0.1;
+
+  editOverlay.style.bottom = newBottom + "px";
+});
+
+// =========================
+// 編集確定 → 履歴保存
+// =========================
 btnConfirmEdit.onclick = () => {
-  const fixedText = editText.value || "";
-  if (!fixedText.trim()) {
+  const fixedText = editText.value.trim();
+  if (!fixedText) {
     alert("テキストが空です。");
     return;
   }
+
   lastRawText = fixedText;
   saveHistoryEntry(lastPhotoBase64, lastRawText);
+
   closeEditOverlay();
-  alert("写真＋OCR全文を履歴に保存しました。");
+  alert("履歴に保存しました。");
 };
 
 // キャンセル
@@ -282,21 +301,27 @@ btnCancelEdit.onclick = () => {
 };
 
 // =========================
-// 履歴保存・表示
+// 履歴保存
 // =========================
-function saveHistoryEntry(photoDataUrl, rawText) {
+function saveHistoryEntry(photo, text) {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
+
   history.push({
-    id: new Date().toISOString(),
-    photo: photoDataUrl || "",
-    rawText: rawText || ""
+    id: new Date().toLocaleString("ja-JP"),
+    photo,
+    rawText: text
   });
+
   localStorage.setItem("receiptHistory_simple", JSON.stringify(history));
 }
 
+// =========================
+// 履歴表示
+// =========================
 btnShowHistory.onclick = () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
   const container = document.getElementById("history");
+
   let html = "";
   history.forEach(h => {
     html += `
@@ -305,16 +330,17 @@ btnShowHistory.onclick = () => {
         ${h.photo ? `<img src="${h.photo}">` : ""}
         <details style="margin-top:6px;">
           <summary>OCR全文</summary>
-          <pre>${h.rawText || ""}</pre>
+          <pre>${h.rawText}</pre>
         </details>
       </div>
     `;
   });
+
   container.innerHTML = html || "<p>履歴はまだありません。</p>";
 };
 
 // =========================
-// ZIP作成（写真＋OCR全文）
+// ZIP作成
 // =========================
 btnDownloadZip.onclick = async () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
@@ -326,18 +352,19 @@ btnDownloadZip.onclick = async () => {
   const zip = new JSZip();
 
   history.forEach((h, idx) => {
-    const dateKey = h.id ? h.id.substring(0, 10) : "unknown";
-    const folder = zip.folder(`${dateKey}/receipt_${idx + 1}`);
+    const folder = zip.folder(`${h.id.replace(/[\/:]/g, "-")}`);
 
     if (h.photo) {
       const base64 = h.photo.split(",")[1];
       folder.file("photo.jpg", base64, { base64: true });
     }
-    folder.file("ocr.txt", h.rawText || "");
+
+    folder.file("ocr.txt", h.rawText);
   });
 
   const blob = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
   a.href = url;
   a.download = "receipts_ocr_only.zip";
