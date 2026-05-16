@@ -1,6 +1,6 @@
 # ルートディレクトリの特定ファイルのみ除外
-/config.json
-/sample.json
+config.json
+sample.json
 
 # 特定のディレクトリ内のファイルを除外
 logs/*.log
