@@ -1,24 +1,25 @@
-let GOOGLE_API_KEY = "";
+let GOOGLE_API_KEY = localStorage.getItem("GOOGLE_API_KEY") || "";
 let lastExtractedItems = [];
 
-// ローカルの config.json を読み込む
-document.getElementById("configFile").addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
+// APIキー設定
+document.getElementById("setApiKey").onclick = () => {
+  const key = document.getElementById("apiKeyInput").value.trim();
+  if (!key) {
+    alert("APIキーを入力してください");
+    return;
+  }
 
-  const text = await file.text();
-  const json = JSON.parse(text);
+  GOOGLE_API_KEY = key;
+  localStorage.setItem("GOOGLE_API_KEY", key);
 
-  GOOGLE_API_KEY = json.GOOGLE_API_KEY;
+  alert("APIキーを設定しました");
+};
 
-  alert("APIキーを読み込みました！");
-});
-
+// カメラ起動
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const output = document.getElementById("output");
 
-// カメラ起動
 document.getElementById("start").onclick = async () => {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
@@ -29,7 +30,7 @@ document.getElementById("start").onclick = async () => {
 // 撮影してOCR
 document.getElementById("capture").onclick = async () => {
   if (!GOOGLE_API_KEY) {
-    alert("先に config.json を読み込んでください");
+    alert("先にAPIキーを設定してください");
     return;
   }
 
@@ -68,7 +69,6 @@ document.getElementById("capture").onclick = async () => {
 // 品名・数量・金額を抽出
 function extractItems(text) {
   const lines = text.split("\n");
-
   const items = [];
 
   const itemRegex = /^(.+?)\s+(\d+)\s+(\d{1,3}(,\d{3})*|\d+)$/;
@@ -87,12 +87,26 @@ function extractItems(text) {
   return items;
 }
 
-// Excel保存
-document.getElementById("saveExcel").onclick = () => {
+// 履歴保存
+document.getElementById("saveHistory").onclick = () => {
   if (lastExtractedItems.length === 0) {
     alert("抽出データがありません");
     return;
   }
 
-  saveToExcel(lastExtractedItems);
+  const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
+  history.push({
+    date: new Date().toISOString(),
+    items: lastExtractedItems
+  });
+
+  localStorage.setItem("receiptHistory", JSON.stringify(history));
+  alert("履歴に保存しました");
+};
+
+// 履歴表示
+document.getElementById("showHistory").onclick = () => {
+  const history = JSON.parse(localStorage.getItem("receiptHistory") || "[]");
+  document.getElementById("history").textContent =
+    JSON.stringify(history, null, 2);
 };
