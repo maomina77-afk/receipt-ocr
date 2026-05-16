@@ -6,10 +6,15 @@ let lastRawText = "";
 let lastPhotoBase64 = "";
 let cropper = null;
 let currentStream = null;
+let currentTrack = null;
 
 // DOM取得
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
+
+const zoomArea = document.getElementById("zoomArea");
+const zoomSlider = document.getElementById("zoomSlider");
+const zoomLabel = document.getElementById("zoomLabel");
 
 const btnSetApiKey = document.getElementById("setApiKey");
 const btnStart = document.getElementById("start");
@@ -90,7 +95,7 @@ btnSetApiKey.onclick = () => {
 };
 
 // =========================
-// カメラ起動（ズーム対応）
+// カメラ起動（ズーム対応＋ピンチズーム）
 // =========================
 btnStart.onclick = async () => {
   try {
@@ -104,12 +109,58 @@ btnStart.onclick = async () => {
 
     video.srcObject = currentStream;
 
-    // ズーム対応（可能な端末のみ）
-    const track = currentStream.getVideoTracks()[0];
-    const capabilities = track.getCapabilities();
+    currentTrack = currentStream.getVideoTracks()[0];
+    const capabilities = currentTrack.getCapabilities();
+
+    // ズーム対応
     if (capabilities.zoom) {
-      track.applyConstraints({
-        advanced: [{ zoom: capabilities.zoom.min }]
+      zoomArea.style.display = "block";
+
+      zoomSlider.min = capabilities.zoom.min;
+      zoomSlider.max = capabilities.zoom.max;
+      zoomSlider.step = capabilities.zoom.step || 0.1;
+      zoomSlider.value = 1.2; // 初期値
+      zoomLabel.textContent = "1.2x";
+
+      currentTrack.applyConstraints({
+        advanced: [{ zoom: 1.2 }]
+      });
+
+      zoomSlider.oninput = () => {
+        const z = Number(zoomSlider.value);
+        zoomLabel.textContent = z.toFixed(1) + "x";
+        currentTrack.applyConstraints({
+          advanced: [{ zoom: z }]
+        });
+      };
+
+      // ピンチズーム
+      let lastDistance = null;
+
+      video.addEventListener("touchmove", e => {
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (lastDistance) {
+            const diff = distance - lastDistance;
+            let newZoom = Number(zoomSlider.value) + diff * 0.005;
+            newZoom = Math.max(capabilities.zoom.min, Math.min(capabilities.zoom.max, newZoom));
+
+            zoomSlider.value = newZoom;
+            zoomLabel.textContent = newZoom.toFixed(1) + "x";
+
+            currentTrack.applyConstraints({
+              advanced: [{ zoom: newZoom }]
+            });
+          }
+          lastDistance = distance;
+        }
+      });
+
+      video.addEventListener("touchend", () => {
+        lastDistance = null;
       });
     }
 
@@ -122,18 +173,18 @@ btnStart.onclick = async () => {
 // 撮影 → プレビュー表示（Cropper.js）
 // =========================
 btnCapture.onclick = () => {
+  zoomArea.style.display = "none";
+
   if (!video.videoWidth || !video.videoHeight) {
     alert("カメラ準備中です。数秒待ってください。");
     return;
   }
 
-  // カメラ停止
   if (currentStream) {
     currentStream.getTracks().forEach(t => t.stop());
     currentStream = null;
   }
 
-  // 撮影
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
@@ -142,11 +193,9 @@ btnCapture.onclick = () => {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   lastPhotoBase64 = dataUrl;
 
-  // プレビュー表示
   previewImage.src = dataUrl;
   previewArea.style.display = "block";
 
-  // Cropper.js 初期化
   if (cropper) cropper.destroy();
   cropper = new Cropper(previewImage, {
     viewMode: 1,
@@ -157,7 +206,7 @@ btnCapture.onclick = () => {
 };
 
 // =========================
-// プレビュー → OCR実行
+// プレビュー → OCR
 // =========================
 btnDoCrop.onclick = async () => {
   if (!cropper) return;
@@ -258,25 +307,6 @@ function openEditOverlay(text) {
 function closeEditOverlay() {
   editOverlay.style.bottom = "-80vh";
 }
-
-// ドラッグで高さ可変
-let startY = 0;
-let startBottom = 0;
-
-editOverlay.addEventListener("touchstart", e => {
-  startY = e.touches[0].clientY;
-  startBottom = parseInt(editOverlay.style.bottom);
-});
-
-editOverlay.addEventListener("touchmove", e => {
-  const diff = startY - e.touches[0].clientY;
-  let newBottom = startBottom + diff;
-
-  if (newBottom < -80) newBottom = -80;
-  if (newBottom > window.innerHeight * 0.1) newBottom = window.innerHeight * 0.1;
-
-  editOverlay.style.bottom = newBottom + "px";
-});
 
 // =========================
 // 編集確定 → 履歴保存
