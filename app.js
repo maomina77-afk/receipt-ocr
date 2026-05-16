@@ -8,6 +8,9 @@ let cropper = null;
 let currentStream = null;
 let currentTrack = null;
 
+// 会社名の記憶
+let savedCompany = localStorage.getItem("companyName") || "";
+
 // DOM取得
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -37,8 +40,13 @@ const btnCancelPreview = document.getElementById("cancelPreview");
 
 const editOverlay = document.getElementById("editOverlay");
 const editText = document.getElementById("editText");
+const fileNameInput = document.getElementById("fileNameInput");
+const companyInput = document.getElementById("companyInput");
 const btnConfirmEdit = document.getElementById("confirmEdit");
 const btnCancelEdit = document.getElementById("cancelEdit");
+
+const historySearch = document.getElementById("historySearch");
+const historySort = document.getElementById("historySort");
 
 // =========================
 // ビープ音
@@ -100,6 +108,17 @@ btnSetApiKey.onclick = () => {
   localStorage.setItem("GOOGLE_API_KEY", key);
   alert("APIキーを設定しました");
 };
+
+// =========================
+// デフォルトファイル名生成
+// =========================
+function generateDefaultFileName(company) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}${m}${d}_${company || "会社名"}`;
+}
 
 // =========================
 // カメラ起動（ズーム＋ピンチ）
@@ -169,7 +188,6 @@ btnStart.onclick = async () => {
     alert("カメラが使えません: " + e.message);
   }
 };
-
 // =========================
 // 撮影 → プレビュー表示（Cropper.js）
 // =========================
@@ -311,7 +329,10 @@ async function ocrBase64(base64) {
     }
 
     let text = data.responses[0].fullTextAnnotation.text || "";
-    text = normalizeOcrText(text);
+
+    // ★ 自動整形（誤字補正・数字揺れ補正）
+    text = autoFixText(text);
+
     lastRawText = text;
 
     openEditOverlay(text);
@@ -326,15 +347,25 @@ async function ocrBase64(base64) {
 }
 
 // =========================
-// OCR誤字補正
+// OCR誤字補正・自然整形
 // =========================
-function normalizeOcrText(text) {
+function autoFixText(text) {
   return text
-    .replace(/Ⅰ/g, "1")
-    .replace(/Ｉ/g, "1")
-    .replace(/O/g, "0")
-    .replace(/〇/g, "0")
-    .replace(/￥/g, "¥");
+    // 数字の揺れ補正
+    .replace(/[O〇○]/g, "0")
+    .replace(/[Iｌ｜]/g, "1")
+
+    // よくある誤字
+    .replace(/問合せ/g, "問い合わせ")
+    .replace(/御/g, "ご")
+
+    // 連続スペース削除
+    .replace(/ +/g, " ")
+
+    // 改行整理
+    .replace(/\n{2,}/g, "\n")
+
+    .trim();
 }
 
 // =========================
@@ -342,6 +373,13 @@ function normalizeOcrText(text) {
 // =========================
 function openEditOverlay(text) {
   editText.value = text;
+
+  // 会社名を自動入力
+  companyInput.value = savedCompany;
+
+  // デフォルトファイル名
+  fileNameInput.value = generateDefaultFileName(savedCompany);
+
   editOverlay.style.bottom = "0px";
 }
 
@@ -349,15 +387,30 @@ function closeEditOverlay() {
   editOverlay.style.bottom = "-80vh";
 }
 
+// =========================
+// 編集内容を保存
+// =========================
 btnConfirmEdit.onclick = () => {
   const fixedText = editText.value.trim();
+  const fileName = fileNameInput.value.trim();
+  const company = companyInput.value.trim();
+
   if (!fixedText) {
     alert("テキストが空です。");
     return;
   }
+  if (!fileName) {
+    alert("ファイル名を入力してください。");
+    return;
+  }
+
+  // 会社名を記憶
+  savedCompany = company;
+  localStorage.setItem("companyName", company);
 
   lastRawText = fixedText;
-  saveHistoryEntry(lastPhotoBase64, lastRawText);
+
+  saveHistoryEntry(lastPhotoBase64, lastRawText, fileName, company);
 
   closeEditOverlay();
   alert("履歴に保存しました。");
@@ -370,30 +423,53 @@ btnCancelEdit.onclick = () => {
 // =========================
 // 履歴保存
 // =========================
-function saveHistoryEntry(photo, text) {
+function saveHistoryEntry(photo, text, fileName, company) {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
 
   history.push({
     id: new Date().toLocaleString("ja-JP"),
     photo,
-    rawText: text
+    rawText: text,
+    fileName,
+    company
   });
 
   localStorage.setItem("receiptHistory_simple", JSON.stringify(history));
 }
-
 // =========================
-// 履歴表示
+// 履歴表示（検索・ソート対応）
 // =========================
 btnShowHistory.onclick = () => {
-  const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
-  const container = document.getElementById("history");
+  renderHistory();
+};
 
+// 履歴の描画
+function renderHistory() {
+  let history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
+
+  // 検索
+  const keyword = historySearch.value.trim();
+  if (keyword) {
+    history = history.filter(h =>
+      h.fileName.includes(keyword) ||
+      h.company.includes(keyword) ||
+      h.rawText.includes(keyword) ||
+      h.id.includes(keyword)
+    );
+  }
+
+  // ソート
+  history = sortHistory(history, historySort.value);
+
+  // 描画
+  const container = document.getElementById("history");
   let html = "";
+
   history.forEach(h => {
     html += `
       <div class="history-item">
         <div style="font-size:12px;color:#666;">${h.id}</div>
+        <div><b>${h.fileName}</b>（${h.company}）</div>
         ${h.photo ? `<img src="${h.photo}">` : ""}
         <details style="margin-top:6px;">
           <summary>OCR全文</summary>
@@ -404,10 +480,28 @@ btnShowHistory.onclick = () => {
   });
 
   container.innerHTML = html || "<p>履歴はまだありません。</p>";
-};
+}
 
 // =========================
-// ZIP作成
+// 履歴ソート
+// =========================
+function sortHistory(history, mode) {
+  switch (mode) {
+    case "date_desc":
+      return history.sort((a, b) => new Date(b.id) - new Date(a.id));
+    case "date_asc":
+      return history.sort((a, b) => new Date(a.id) - new Date(b.id));
+    case "name":
+      return history.sort((a, b) => a.fileName.localeCompare(b.fileName));
+    case "company":
+      return history.sort((a, b) => a.company.localeCompare(b.company));
+    default:
+      return history;
+  }
+}
+
+// =========================
+// ZIP作成（フォルダなし・重複名は自動採番）
 // =========================
 btnDownloadZip.onclick = async () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
@@ -417,16 +511,20 @@ btnDownloadZip.onclick = async () => {
   }
 
   const zip = new JSZip();
+  const usedNames = new Set();
 
   history.forEach(h => {
-    const folder = zip.folder(`${h.id.replace(/[\/:]/g, "-")}`);
+    let base = h.fileName || "noname";
+    let unique = getUniqueName(base, usedNames);
 
+    // 画像
     if (h.photo) {
       const base64 = h.photo.split(",")[1];
-      folder.file("photo.jpg", base64, { base64: true });
+      zip.file(`${unique}.jpg`, base64, { base64: true });
     }
 
-    folder.file("ocr.txt", h.rawText);
+    // OCRテキスト
+    zip.file(`${unique}.txt`, h.rawText);
   });
 
   const blob = await zip.generateAsync({ type: "blob" });
@@ -434,6 +532,78 @@ btnDownloadZip.onclick = async () => {
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = "receipts_ocr_only.zip";
+  a.download = "receipts_ocr.zip";
   a.click();
+};
+
+// 重複名の自動採番
+function getUniqueName(base, used) {
+  let name = base;
+  let i = 1;
+  while (used.has(name)) {
+    name = `${base}(${i})`;
+    i++;
+  }
+  used.add(name);
+  return name;
+}
+
+// =========================
+// 検索・ソートのリアルタイム反映
+// =========================
+historySearch.oninput = () => renderHistory();
+historySort.onchange = () => renderHistory();
+// =========================
+// 履歴バックアップ（JSON）
+// =========================
+document.getElementById("backupHistory").onclick = () => {
+  const history = localStorage.getItem("receiptHistory_simple") || "[]";
+
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+
+  const blob = new Blob([history], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `receipt_history_backup_${y}${m}${d}.json`;
+  a.click();
+};
+// =========================
+// 履歴復元（JSON）
+// =========================
+document.getElementById("restoreHistory").onclick = () => {
+  const fileInput = document.getElementById("restoreFileInput");
+  if (!fileInput.files || fileInput.files.length === 0) {
+    alert("復元する JSON ファイルを選択してください");
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    try {
+      const json = JSON.parse(e.target.result);
+
+      if (!Array.isArray(json)) {
+        alert("JSON の形式が正しくありません");
+        return;
+      }
+
+      // ★ 履歴を上書き保存
+      localStorage.setItem("receiptHistory_simple", JSON.stringify(json));
+
+      alert("履歴を復元しました");
+      renderHistory();
+
+    } catch (err) {
+      alert("JSON の読み込みに失敗しました: " + err.message);
+    }
+  };
+
+  reader.readAsText(file);
 };

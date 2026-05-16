@@ -195,27 +195,6 @@
     resize: none;
     white-space: pre-wrap;
   }
-  
-  /* Cropper.js の右下ハンドルをスマホ向けに大きくする */
-.cropper-point.point-se {
-  width: 40px !important;
-  height: 40px !important;
-  background: rgba(255,255,255,0.9) !important;
-  border: 2px solid #1976d2 !important;
-  border-radius: 8px !important;
-  opacity: 1 !important;
-}
-
-/* タップ判定を広げる（実際の当たり判定） */
-.cropper-point.point-se::after {
-  content: "";
-  position: absolute;
-  left: -20px;
-  top: -20px;
-  width: 80px;
-  height: 80px;
-}
-
 </style>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -249,7 +228,6 @@
 
   <canvas id="canvas" style="display:none;"></canvas>
 </div>
-
 <div class="card">
   <h2>③ ファイルから読み込む</h2>
   <input type="file" id="fileInput" accept=".jpg,.jpeg,.png">
@@ -258,9 +236,23 @@
 
 <div class="card">
   <h2>④ 履歴管理</h2>
+
+  <!-- 検索＆ソート -->
+  <input id="historySearch" placeholder="履歴を検索（ファイル名・会社名・テキスト・日付）">
+  <select id="historySort">
+    <option value="date_desc">日付（新しい順）</option>
+    <option value="date_asc">日付（古い順）</option>
+    <option value="name">ファイル名順</option>
+    <option value="company">会社名順</option>
+  </select>
+
   <button id="showHistory" class="secondary">履歴を表示</button>
   <button id="downloadZip" class="secondary">ZIP（写真＋OCR全文）をダウンロード</button>
-  <div id="history"></div>
+  
+  <button id="backupHistory" class="secondary">履歴をバックアップ（JSON）</button>
+<input type="file" id="restoreFileInput" accept=".json" style="margin-top:8px;">
+<button id="restoreHistory" class="secondary">履歴を復元（JSON）</button>
+<div id="history"></div>
 </div>
 
 <!-- 撮影後プレビュー -->
@@ -283,6 +275,16 @@
 
 <!-- OCR編集ボトムシート -->
 <div id="editOverlay">
+  <!-- ファイル名 -->
+  <input id="fileNameInput"
+         placeholder="ファイル名（例：20260516_会社名）"
+         style="padding:10px;font-size:16px;margin-bottom:8px;border-radius:8px;border:1px solid #ccc;">
+
+  <!-- 会社名 -->
+  <input id="companyInput"
+         placeholder="会社名（例：安楽寺）"
+         style="padding:10px;font-size:16px;margin-bottom:8px;border-radius:8px;border:1px solid #ccc;">
+
   <textarea id="editText"></textarea>
   <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
   <button id="cancelEdit" class="danger">キャンセル</button>
