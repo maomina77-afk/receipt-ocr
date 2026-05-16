@@ -175,13 +175,13 @@ btnStart.onclick = async () => {
 btnCapture.onclick = () => {
   zoomArea.style.display = "none";
 
-  // まだ映像が来ていないときは弾く
-  if (!video.videoWidth || !video.videoHeight || video.readyState < 2) {
-    alert("カメラ準備中です。数秒待ってからもう一度撮影してください。");
+  // ★ ここが重要：video が完全に準備できていないと撮影しない
+  if (video.readyState < 2 || video.videoWidth === 0) {
+    alert("カメラ準備中です。1〜2秒待ってからもう一度撮影してください。");
     return;
   }
 
-  // まずキャプチャ
+  // 撮影
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
@@ -190,14 +190,14 @@ btnCapture.onclick = () => {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   lastPhotoBase64 = dataUrl;
 
-  // ストリーム停止は「キャプチャ後」にする
+  // ★ 撮影後にストリーム停止（ここも重要）
   if (currentStream) {
     currentStream.getTracks().forEach(t => t.stop());
     currentStream = null;
     currentTrack = null;
   }
 
-  // 画像読み込み完了してから Cropper を作る
+  // ★ Cropper は画像読み込み完了後に初期化
   previewImage.onload = () => {
     previewArea.style.display = "block";
 
@@ -209,6 +209,7 @@ btnCapture.onclick = () => {
       autoCropArea: 1.0
     });
   };
+
   previewImage.src = dataUrl;
 };
 
