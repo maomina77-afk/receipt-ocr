@@ -225,15 +225,6 @@ btnCapture.onclick = () => {
       background: false,
       autoCropArea: 0.8
       
-      	cropper-point::before {
-    	content: "";
-    	position: absolute;
-    	top: -10px;
-    	bottom: -10px;
-    	left: -10px;
-    	right: -10px;
-		}
-      
     });
 
     zoomAreaPreview.style.visibility = "hidden";
