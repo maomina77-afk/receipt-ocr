@@ -223,11 +223,16 @@ btnCapture.onclick = () => {
       viewMode: 1,
       dragMode: "move",
       background: false,
-      autoCropArea: 0.8
-      
+      autoCropArea: 1.0,
+      movable: true,
+      zoomable: true,
+      scalable: false,
+      rotatable: false,
+      cropBoxMovable: true,
+      cropBoxResizable: true
     });
 
-    zoomAreaPreview.style.visibility = "hidden";
+    zoomAreaPreview.style.visibility = "visible";
     zoomAreaPreview.style.opacity = "1";
     zoomAreaPreview.style.pointerEvents = "auto";
 
@@ -352,20 +357,12 @@ async function ocrBase64(base64) {
 // =========================
 function autoFixText(text) {
   return text
-    // 数字の揺れ補正
     .replace(/[O〇○]/g, "0")
     .replace(/[Iｌ｜]/g, "1")
-
-    // よくある誤字
     .replace(/問合せ/g, "問い合わせ")
     .replace(/御/g, "ご")
-
-    // 連続スペース削除
     .replace(/ +/g, " ")
-
-    // 改行整理
     .replace(/\n{2,}/g, "\n")
-
     .trim();
 }
 
@@ -375,10 +372,8 @@ function autoFixText(text) {
 function openEditOverlay(text) {
   editText.value = text;
 
-  // 会社名を自動入力
   companyInput.value = savedCompany;
 
-  // デフォルトファイル名
   fileNameInput.value = generateDefaultFileName(savedCompany);
 
   editOverlay.style.bottom = "0px";
@@ -405,7 +400,6 @@ btnConfirmEdit.onclick = () => {
     return;
   }
 
-  // 会社名を記憶
   savedCompany = company;
   localStorage.setItem("companyName", company);
 
@@ -550,11 +544,6 @@ function getUniqueName(base, used) {
 }
 
 // =========================
-// 検索・ソートのリアルタイム反映
-// =========================
-historySearch.oninput = () => renderHistory();
-historySort.onchange = () => renderHistory();
-// =========================
 // 履歴バックアップ（JSON）
 // =========================
 document.getElementById("backupHistory").onclick = () => {
@@ -573,6 +562,7 @@ document.getElementById("backupHistory").onclick = () => {
   a.download = `receipt_history_backup_${y}${m}${d}.json`;
   a.click();
 };
+
 // =========================
 // 履歴復元（JSON）
 // =========================
@@ -608,3 +598,9 @@ document.getElementById("restoreHistory").onclick = () => {
 
   reader.readAsText(file);
 };
+
+// =========================
+// 検索・ソートのリアルタイム反映
+// =========================
+historySearch.oninput = () => renderHistory();
+historySort.onchange = () => renderHistory();
