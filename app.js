@@ -6,22 +6,10 @@ let lastRawText = "";
 let lastPhotoBase64 = "";
 let cropper = null;
 let currentStream = null;
-let currentTrack = null;
-
-// 会社名の記憶
-let savedCompany = localStorage.getItem("companyName") || "";
 
 // DOM取得
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
-
-const zoomAreaCamera = document.getElementById("zoomAreaCamera");
-const zoomSliderCamera = document.getElementById("zoomSliderCamera");
-const zoomLabelCamera = document.getElementById("zoomLabelCamera");
-
-const zoomAreaPreview = document.getElementById("zoomAreaPreview");
-const zoomSliderPreview = document.getElementById("zoomSliderPreview");
-const zoomLabelPreview = document.getElementById("zoomLabelPreview");
 
 const btnSetApiKey = document.getElementById("setApiKey");
 const btnStart = document.getElementById("start");
@@ -30,23 +18,15 @@ const btnLoadFile = document.getElementById("loadFile");
 const btnShowHistory = document.getElementById("showHistory");
 const btnDownloadZip = document.getElementById("downloadZip");
 
-const fileInput = document.getElementById("fileInput");
-
 const previewArea = document.getElementById("previewArea");
-const previewContainer = document.getElementById("previewContainer");
 const previewImage = document.getElementById("previewImage");
 const btnDoCrop = document.getElementById("doCrop");
 const btnCancelPreview = document.getElementById("cancelPreview");
 
 const editOverlay = document.getElementById("editOverlay");
 const editText = document.getElementById("editText");
-const fileNameInput = document.getElementById("fileNameInput");
-const companyInput = document.getElementById("companyInput");
 const btnConfirmEdit = document.getElementById("confirmEdit");
 const btnCancelEdit = document.getElementById("cancelEdit");
-
-const historySearch = document.getElementById("historySearch");
-const historySort = document.getElementById("historySort");
 
 // =========================
 // ビープ音
@@ -110,18 +90,7 @@ btnSetApiKey.onclick = () => {
 };
 
 // =========================
-// デフォルトファイル名生成
-// =========================
-function generateDefaultFileName(company) {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}${m}${d}_${company || "会社名"}`;
-}
-
-// =========================
-// カメラ起動（ズーム＋ピンチ）
+// カメラ起動（ズーム対応）
 // =========================
 btnStart.onclick = async () => {
   try {
@@ -134,53 +103,13 @@ btnStart.onclick = async () => {
     });
 
     video.srcObject = currentStream;
-    currentTrack = currentStream.getVideoTracks()[0];
-    const capabilities = currentTrack.getCapabilities();
 
+    // ズーム対応（可能な端末のみ）
+    const track = currentStream.getVideoTracks()[0];
+    const capabilities = track.getCapabilities();
     if (capabilities.zoom) {
-      zoomAreaCamera.style.visibility = "visible";
-      zoomAreaCamera.style.opacity = "1";
-      zoomAreaCamera.style.pointerEvents = "auto";
-
-      zoomSliderCamera.min = capabilities.zoom.min;
-      zoomSliderCamera.max = capabilities.zoom.max;
-      zoomSliderCamera.step = capabilities.zoom.step || 0.1;
-
-      const initialZoom = Math.min(
-        capabilities.zoom.max,
-        Math.max(capabilities.zoom.min, 1.2)
-      );
-      zoomSliderCamera.value = initialZoom;
-      zoomLabelCamera.textContent = initialZoom.toFixed(1) + "x";
-
-      currentTrack.applyConstraints({ advanced: [{ zoom: initialZoom }] });
-
-      zoomSliderCamera.oninput = () => {
-        const z = Number(zoomSliderCamera.value);
-        zoomLabelCamera.textContent = z.toFixed(1) + "x";
-        currentTrack.applyConstraints({ advanced: [{ zoom: z }] });
-      };
-
-      let lastDistance = null;
-      video.addEventListener("touchmove", e => {
-        if (e.touches.length === 2 && currentTrack) {
-          const dx = e.touches[0].clientX - e.touches[1].clientX;
-          const dy = e.touches[0].clientY - e.touches[1].clientY;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (lastDistance) {
-            const diff = distance - lastDistance;
-            let newZoom = Number(zoomSliderCamera.value) + diff * 0.005;
-            newZoom = Math.max(capabilities.zoom.min, Math.min(capabilities.zoom.max, newZoom));
-            zoomSliderCamera.value = newZoom;
-            zoomLabelCamera.textContent = newZoom.toFixed(1) + "x";
-            currentTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
-          }
-          lastDistance = distance;
-        }
-      });
-      video.addEventListener("touchend", () => {
-        lastDistance = null;
+      track.applyConstraints({
+        advanced: [{ zoom: capabilities.zoom.min }]
       });
     }
 
@@ -188,19 +117,23 @@ btnStart.onclick = async () => {
     alert("カメラが使えません: " + e.message);
   }
 };
+
 // =========================
 // 撮影 → プレビュー表示（Cropper.js）
 // =========================
 btnCapture.onclick = () => {
-  zoomAreaCamera.style.visibility = "hidden";
-  zoomAreaCamera.style.opacity = "0";
-  zoomAreaCamera.style.pointerEvents = "none";
-
-  if (video.readyState < 2 || video.videoWidth === 0) {
-    alert("カメラ準備中です。1〜2秒待ってからもう一度撮影してください。");
+  if (!video.videoWidth || !video.videoHeight) {
+    alert("カメラ準備中です。数秒待ってください。");
     return;
   }
 
+  // カメラ停止
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+
+  // 撮影
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
@@ -209,42 +142,22 @@ btnCapture.onclick = () => {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
   lastPhotoBase64 = dataUrl;
 
-  if (currentStream) {
-    currentStream.getTracks().forEach(t => t.stop());
-    currentStream = null;
-    currentTrack = null;
-  }
-
-  previewImage.onload = () => {
-    previewArea.style.display = "block";
-
-    if (cropper) cropper.destroy();
-    cropper = new Cropper(previewImage, {
-      viewMode: 1,
-      dragMode: "move",
-      background: false,
-      autoCropArea: 1.0,
-      movable: true,
-      zoomable: true,
-      scalable: false,
-      rotatable: false,
-      cropBoxMovable: true,
-      cropBoxResizable: true
-    });
-
-    zoomAreaPreview.style.visibility = "visible";
-    zoomAreaPreview.style.opacity = "1";
-    zoomAreaPreview.style.pointerEvents = "auto";
-
-    zoomSliderPreview.value = zoomSliderCamera.value;
-    zoomLabelPreview.textContent = zoomSliderCamera.value + "x";
-  };
-
+  // プレビュー表示
   previewImage.src = dataUrl;
+  previewArea.style.display = "block";
+
+  // Cropper.js 初期化
+  if (cropper) cropper.destroy();
+  cropper = new Cropper(previewImage, {
+    viewMode: 1,
+    dragMode: "move",
+    background: false,
+    autoCropArea: 1.0
+  });
 };
 
 // =========================
-// プレビュー → OCR
+// プレビュー → OCR実行
 // =========================
 btnDoCrop.onclick = async () => {
   if (!cropper) return;
@@ -259,9 +172,6 @@ btnDoCrop.onclick = async () => {
   lastPhotoBase64 = dataUrl;
 
   previewArea.style.display = "none";
-  zoomAreaPreview.style.visibility = "hidden";
-  zoomAreaPreview.style.opacity = "0";
-  zoomAreaPreview.style.pointerEvents = "none";
 
   await ocrBase64(base64);
 };
@@ -271,32 +181,8 @@ btnDoCrop.onclick = async () => {
 // =========================
 btnCancelPreview.onclick = () => {
   previewArea.style.display = "none";
-
-  zoomAreaPreview.style.visibility = "hidden";
-  zoomAreaPreview.style.opacity = "0";
-  zoomAreaPreview.style.pointerEvents = "none";
-
   if (cropper) cropper.destroy();
   cropper = null;
-};
-
-// =========================
-// ファイルからOCR
-// =========================
-btnLoadFile.onclick = () => {
-  if (!fileInput.files || fileInput.files.length === 0) {
-    alert("画像ファイルを選択してください");
-    return;
-  }
-  const file = fileInput.files[0];
-  const reader = new FileReader();
-  reader.onload = e => {
-    const dataUrl = e.target.result;
-    lastPhotoBase64 = dataUrl;
-    const base64 = dataUrl.split(",")[1];
-    ocrBase64(base64);
-  };
-  reader.readAsDataURL(file);
 };
 
 // =========================
@@ -335,10 +221,7 @@ async function ocrBase64(base64) {
     }
 
     let text = data.responses[0].fullTextAnnotation.text || "";
-
-    // ★ 自動整形（誤字補正・数字揺れ補正）
-    text = autoFixText(text);
-
+    text = normalizeOcrText(text);
     lastRawText = text;
 
     openEditOverlay(text);
@@ -353,17 +236,15 @@ async function ocrBase64(base64) {
 }
 
 // =========================
-// OCR誤字補正・自然整形
+// OCR誤字補正
 // =========================
-function autoFixText(text) {
+function normalizeOcrText(text) {
   return text
-    .replace(/[O〇○]/g, "0")
-    .replace(/[Iｌ｜]/g, "1")
-    .replace(/問合せ/g, "問い合わせ")
-    .replace(/御/g, "ご")
-    .replace(/ +/g, " ")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
+    .replace(/Ⅰ/g, "1")
+    .replace(/Ｉ/g, "1")
+    .replace(/O/g, "0")
+    .replace(/〇/g, "0")
+    .replace(/￥/g, "¥");
 }
 
 // =========================
@@ -371,11 +252,6 @@ function autoFixText(text) {
 // =========================
 function openEditOverlay(text) {
   editText.value = text;
-
-  companyInput.value = savedCompany;
-
-  fileNameInput.value = generateDefaultFileName(savedCompany);
-
   editOverlay.style.bottom = "0px";
 }
 
@@ -383,34 +259,43 @@ function closeEditOverlay() {
   editOverlay.style.bottom = "-80vh";
 }
 
+// ドラッグで高さ可変
+let startY = 0;
+let startBottom = 0;
+
+editOverlay.addEventListener("touchstart", e => {
+  startY = e.touches[0].clientY;
+  startBottom = parseInt(editOverlay.style.bottom);
+});
+
+editOverlay.addEventListener("touchmove", e => {
+  const diff = startY - e.touches[0].clientY;
+  let newBottom = startBottom + diff;
+
+  if (newBottom < -80) newBottom = -80;
+  if (newBottom > window.innerHeight * 0.1) newBottom = window.innerHeight * 0.1;
+
+  editOverlay.style.bottom = newBottom + "px";
+});
+
 // =========================
-// 編集内容を保存
+// 編集確定 → 履歴保存
 // =========================
 btnConfirmEdit.onclick = () => {
   const fixedText = editText.value.trim();
-  const fileName = fileNameInput.value.trim();
-  const company = companyInput.value.trim();
-
   if (!fixedText) {
     alert("テキストが空です。");
     return;
   }
-  if (!fileName) {
-    alert("ファイル名を入力してください。");
-    return;
-  }
-
-  savedCompany = company;
-  localStorage.setItem("companyName", company);
 
   lastRawText = fixedText;
-
-  saveHistoryEntry(lastPhotoBase64, lastRawText, fileName, company);
+  saveHistoryEntry(lastPhotoBase64, lastRawText);
 
   closeEditOverlay();
   alert("履歴に保存しました。");
 };
 
+// キャンセル
 btnCancelEdit.onclick = () => {
   closeEditOverlay();
 };
@@ -418,53 +303,30 @@ btnCancelEdit.onclick = () => {
 // =========================
 // 履歴保存
 // =========================
-function saveHistoryEntry(photo, text, fileName, company) {
+function saveHistoryEntry(photo, text) {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
 
   history.push({
     id: new Date().toLocaleString("ja-JP"),
     photo,
-    rawText: text,
-    fileName,
-    company
+    rawText: text
   });
 
   localStorage.setItem("receiptHistory_simple", JSON.stringify(history));
 }
+
 // =========================
-// 履歴表示（検索・ソート対応）
+// 履歴表示
 // =========================
 btnShowHistory.onclick = () => {
-  renderHistory();
-};
-
-// 履歴の描画
-function renderHistory() {
-  let history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
-
-  // 検索
-  const keyword = historySearch.value.trim();
-  if (keyword) {
-    history = history.filter(h =>
-      h.fileName.includes(keyword) ||
-      h.company.includes(keyword) ||
-      h.rawText.includes(keyword) ||
-      h.id.includes(keyword)
-    );
-  }
-
-  // ソート
-  history = sortHistory(history, historySort.value);
-
-  // 描画
+  const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
   const container = document.getElementById("history");
-  let html = "";
 
+  let html = "";
   history.forEach(h => {
     html += `
       <div class="history-item">
         <div style="font-size:12px;color:#666;">${h.id}</div>
-        <div><b>${h.fileName}</b>（${h.company}）</div>
         ${h.photo ? `<img src="${h.photo}">` : ""}
         <details style="margin-top:6px;">
           <summary>OCR全文</summary>
@@ -475,28 +337,10 @@ function renderHistory() {
   });
 
   container.innerHTML = html || "<p>履歴はまだありません。</p>";
-}
+};
 
 // =========================
-// 履歴ソート
-// =========================
-function sortHistory(history, mode) {
-  switch (mode) {
-    case "date_desc":
-      return history.sort((a, b) => new Date(b.id) - new Date(a.id));
-    case "date_asc":
-      return history.sort((a, b) => new Date(a.id) - new Date(b.id));
-    case "name":
-      return history.sort((a, b) => a.fileName.localeCompare(b.fileName));
-    case "company":
-      return history.sort((a, b) => a.company.localeCompare(b.company));
-    default:
-      return history;
-  }
-}
-
-// =========================
-// ZIP作成（フォルダなし・重複名は自動採番）
+// ZIP作成
 // =========================
 btnDownloadZip.onclick = async () => {
   const history = JSON.parse(localStorage.getItem("receiptHistory_simple") || "[]");
@@ -506,20 +350,16 @@ btnDownloadZip.onclick = async () => {
   }
 
   const zip = new JSZip();
-  const usedNames = new Set();
 
-  history.forEach(h => {
-    let base = h.fileName || "noname";
-    let unique = getUniqueName(base, usedNames);
+  history.forEach((h, idx) => {
+    const folder = zip.folder(`${h.id.replace(/[\/:]/g, "-")}`);
 
-    // 画像
     if (h.photo) {
       const base64 = h.photo.split(",")[1];
-      zip.file(`${unique}.jpg`, base64, { base64: true });
+      folder.file("photo.jpg", base64, { base64: true });
     }
 
-    // OCRテキスト
-    zip.file(`${unique}.txt`, h.rawText);
+    folder.file("ocr.txt", h.rawText);
   });
 
   const blob = await zip.generateAsync({ type: "blob" });
@@ -527,80 +367,6 @@ btnDownloadZip.onclick = async () => {
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = "receipts_ocr.zip";
+  a.download = "receipts_ocr_only.zip";
   a.click();
 };
-
-// 重複名の自動採番
-function getUniqueName(base, used) {
-  let name = base;
-  let i = 1;
-  while (used.has(name)) {
-    name = `${base}(${i})`;
-    i++;
-  }
-  used.add(name);
-  return name;
-}
-
-// =========================
-// 履歴バックアップ（JSON）
-// =========================
-document.getElementById("backupHistory").onclick = () => {
-  const history = localStorage.getItem("receiptHistory_simple") || "[]";
-
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-
-  const blob = new Blob([history], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `receipt_history_backup_${y}${m}${d}.json`;
-  a.click();
-};
-
-// =========================
-// 履歴復元（JSON）
-// =========================
-document.getElementById("restoreHistory").onclick = () => {
-  const fileInput = document.getElementById("restoreFileInput");
-  if (!fileInput.files || fileInput.files.length === 0) {
-    alert("復元する JSON ファイルを選択してください");
-    return;
-  }
-
-  const file = fileInput.files[0];
-  const reader = new FileReader();
-
-  reader.onload = e => {
-    try {
-      const json = JSON.parse(e.target.result);
-
-      if (!Array.isArray(json)) {
-        alert("JSON の形式が正しくありません");
-        return;
-      }
-
-      // ★ 履歴を上書き保存
-      localStorage.setItem("receiptHistory_simple", JSON.stringify(json));
-
-      alert("履歴を復元しました");
-      renderHistory();
-
-    } catch (err) {
-      alert("JSON の読み込みに失敗しました: " + err.message);
-    }
-  };
-
-  reader.readAsText(file);
-};
-
-// =========================
-// 検索・ソートのリアルタイム反映
-// =========================
-historySearch.oninput = () => renderHistory();
-historySort.onchange = () => renderHistory();
