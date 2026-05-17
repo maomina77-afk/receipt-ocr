@@ -257,7 +257,12 @@
 
 <!-- 撮影後プレビュー -->
 <div id="previewArea">
-  <div id="previewContainer">
+  <div id="previewContainer" style="
+  position:relative;
+  width:90%;
+  height:90%;
+  padding:120px 120px 120px 120px; /* ← これを追加 padding-bottom:120px; */
+">
     <img id="previewImage">
 
     <!-- プレビュー時のズームUI -->

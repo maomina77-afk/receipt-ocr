@@ -226,7 +226,7 @@ btnCapture.onclick = () => {
       autoCropArea: 1.0
     });
 
-    zoomAreaPreview.style.visibility = "visible";
+    zoomAreaPreview.style.visibility = "hidden";
     zoomAreaPreview.style.opacity = "1";
     zoomAreaPreview.style.pointerEvents = "auto";
 
