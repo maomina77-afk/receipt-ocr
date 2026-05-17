@@ -2,10 +2,13 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>レシートOCR家計簿</title>
+<title>レシートOCR</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- モダンUI用スタイル -->
+<!-- Cropper.js -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
 <style>
   body {
     font-family: "Segoe UI", sans-serif;
@@ -29,12 +32,6 @@
     box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   }
 
-  .card h2 {
-    font-size: 18px;
-    margin-bottom: 12px;
-    color: #444;
-  }
-
   button {
     width: 100%;
     padding: 14px;
@@ -47,124 +44,287 @@
     font-weight: bold;
   }
 
-  button.secondary {
-    background: #555;
-  }
+  button.secondary { background:#555; }
+  button.danger { background:#d32f2f; }
 
-  button.danger {
-    background: #d32f2f;
-  }
-
-  input, textarea {
+  input {
     width: 100%;
     padding: 10px;
     font-size: 16px;
     margin: 6px 0;
     border-radius: 6px;
     border: 1px solid #ccc;
+  }
+
+  /* カメラコンテナ（ズームUIの基準） */
+  #cameraContainer {
+    position: relative;
+    width: 100%;
+  }
+
+  #video {
+    width: 100%;
+    border-radius: 10px;
+    background: #000;
+  }
+
+  /* カメラ時のズームUI（初期は完全非表示） */
+  #zoomAreaCamera {
+    position:absolute;
+    top:10px;
+    right:10px;
+    visibility:hidden;
+    opacity:0;
+    pointer-events:none;
+    z-index:20;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+
+  /* プレビュー時のズームUI（初期は完全非表示） */
+  #zoomAreaPreview {
+    position:absolute;
+    top:10px;
+    right:10px;
+    visibility:hidden;
+    opacity:0;
+    pointer-events:none;
+    z-index:10000;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+
+  .zoomLabel {
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .zoomSlider {
+    writing-mode: bt-lr;
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    width: 30px;
+    height: 180px;
+  }
+
+  /* プレビュー全画面 */
+  #previewArea {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 9998;
+  }
+
+  #previewContainer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    padding-bottom: 120px; /* ← Cropper とボタンの重なり防止 */
+  }
+
+  #previewImage {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    margin: auto;
+  }
+
+  #previewButtons {
+    position: fixed;
+    bottom: 20px;
+    width: 100%;
+    display: flex;
+    gap: 10px;
+    padding: 0 20px;
     box-sizing: border-box;
   }
 
-  video, canvas {
-    width: 100%;
-    border-radius: 10px;
-    margin-top: 8px;
+  /* 履歴 */
+  .history-item {
+    margin-bottom: 16px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
   }
 
-  pre {
-    background: #f7f7f7;
-    padding: 10px;
+  .history-item img {
+    width: 100%;
+    max-width: 320px;
+    border-radius: 6px;
+    display: block;
+    margin-top: 4px;
+  }
+
+  /* 編集ボトムシート */
+  #editOverlay {
+    position: fixed;
+    left: 0;
+    bottom: -80vh;
+    width: 100%;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
+    padding: 12px 16px 16px;
+    box-sizing: border-box;
+    transition: bottom 0.25s ease-out;
+    max-height: 80vh;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #editText {
+    flex: 1;
+    width: 100%;
     border-radius: 8px;
-    font-size: 13px;
+    border: 1px solid #ccc;
+    padding: 8px;
+    font-size: 14px;
+    resize: none;
     white-space: pre-wrap;
   }
 
-  details summary {
-    cursor: pointer;
-    font-size: 15px;
-    padding: 6px 0;
-    color: #1976d2;
+  /* ============================
+     ★ トリミングハンドル大型化
+     ============================ */
+  .cropper-point {
+    width: 40px !important;
+    height: 40px !important;
+    background: rgba(255,255,255,0.9) !important;
+    border: 2px solid #1976d2 !important;
+    border-radius: 8px !important;
+    opacity: 1 !important;
   }
 
-  #editor {
-    background: #fff;
-    padding: 16px;
-    border-radius: 12px;
-    margin-top: 12px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  /* タップ判定拡大 */
+  .cropper-point::after {
+    content: "";
+    position: absolute;
+    left: -20px;
+    top: -20px;
+    width: 80px;
+    height: 80px;
+  }
+
+  /* 枠線を太くして視認性UP */
+  .cropper-crop-box,
+  .cropper-view-box {
+    border: 3px solid #1976d2 !important;
+  }
+
+  /* ガイド線を薄く */
+  .cropper-dashed {
+    border-color: rgba(255,255,255,0.4) !important;
   }
 </style>
 
-<!-- 必須ライブラリ -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 </head>
 <body>
 
-<h1>📸 レシートOCR家計簿</h1>
+<h1>レシートOCR</h1>
 
-<!-- APIキー設定 -->
 <div class="card">
   <h2>① APIキー設定</h2>
   <input type="password" id="apiKeyInput" placeholder="Google Vision APIキーを入力">
   <button id="setApiKey">APIキーを設定</button>
 </div>
 
-<!-- カメラ -->
 <div class="card">
   <h2>② カメラ撮影</h2>
+
   <button id="start">カメラ起動</button>
   <button id="capture">撮影してOCR</button>
-  <video id="video" autoplay playsinline></video>
+
+  <div id="cameraContainer">
+    <video id="video" autoplay playsinline></video>
+
+    <!-- カメラ時のズームUI -->
+    <div id="zoomAreaCamera">
+      <div id="zoomLabelCamera" class="zoomLabel">1.2x</div>
+      <input id="zoomSliderCamera" class="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2">
+    </div>
+  </div>
+
   <canvas id="canvas" style="display:none;"></canvas>
 </div>
-
-<!-- ファイル読み込み -->
 <div class="card">
   <h2>③ ファイルから読み込む</h2>
   <input type="file" id="fileInput" accept=".jpg,.jpeg,.png">
   <button id="loadFile" class="secondary">画像ファイルをOCR</button>
 </div>
 
-<!-- OCR結果 -->
 <div class="card">
-  <h2>④ OCR結果</h2>
-  <pre id="output"></pre>
-</div>
+  <h2>④ 履歴管理</h2>
 
-<!-- 高度な操作 -->
-<div class="card">
-  <h2>⑤ 高度な操作</h2>
-  <button id="reparse" class="secondary">rawTextから再解析</button>
-  <button id="openEditor" class="secondary">手入力で補正</button>
-  <button id="downloadExcel" class="secondary">Excel家計簿をダウンロード</button>
-  <button id="downloadZip" class="secondary">ZIP（写真＋rawText＋parsed）</button>
-</div>
+  <!-- 検索＆ソート -->
+  <input id="historySearch" placeholder="履歴を検索（ファイル名・会社名・テキスト・日付）">
+  <select id="historySort">
+    <option value="date_desc">日付（新しい順）</option>
+    <option value="date_asc">日付（古い順）</option>
+    <option value="name">ファイル名順</option>
+    <option value="company">会社名順</option>
+  </select>
 
-<!-- 履歴 -->
-<div class="card">
-  <h2>⑥ 履歴管理</h2>
-  <button id="saveHistory">このレシートを履歴に保存</button>
   <button id="showHistory" class="secondary">履歴を表示</button>
+  <button id="downloadZip" class="secondary">ZIP（写真＋OCR全文）をダウンロード</button>
+
+  <!-- バックアップ／復元 -->
+  <button id="backupHistory" class="secondary">履歴をバックアップ（JSON）</button>
+  <input type="file" id="restoreFileInput" accept=".json" style="margin-top:8px;">
+  <button id="restoreHistory" class="secondary">履歴を復元（JSON）</button>
+
   <div id="history"></div>
 </div>
 
-<!-- 編集フォーム -->
-<div id="editor" style="display:none;">
-  <h2>レシート編集</h2>
-  <label>日付:<input id="editDate"></label>
-  <label>時間:<input id="editTime"></label>
-  <label>店名:<input id="editShop"></label>
-  <label>合計金額:<input id="editTotal" type="number"></label>
-  <label>消費税率:<input id="editTaxRate"></label>
-  <label>消費税額:<input id="editTaxAmount" type="number"></label>
-  <label>支払い方法:<input id="editPayment"></label>
-  <label>明細(JSON):</label>
-  <textarea id="editItems" style="height:120px;"></textarea>
+<!-- 撮影後プレビュー -->
+<div id="previewArea">
+  <div id="previewContainer">
+    <img id="previewImage">
 
-  <button id="saveEdit" class="secondary">編集内容を反映</button>
-  <button id="closeEditor" class="danger">閉じる</button>
+    <!-- プレビュー時のズームUI -->
+    <div id="zoomAreaPreview">
+      <div id="zoomLabelPreview" class="zoomLabel">1.2x</div>
+      <input id="zoomSliderPreview" class="zoomSlider" type="range" min="1" max="5" step="0.1" value="1.2">
+    </div>
+  </div>
+
+  <div id="previewButtons">
+    <button id="doCrop" style="background:#1976d2;color:#fff;">OCRする</button>
+    <button id="cancelPreview" class="danger">キャンセル</button>
+  </div>
+</div>
+
+<!-- OCR編集ボトムシート -->
+<div id="editOverlay">
+
+  <!-- ファイル名 -->
+  <input id="fileNameInput"
+         placeholder="ファイル名（例：20260516_会社名）"
+         style="padding:10px;font-size:16px;margin-bottom:8px;border-radius:8px;border:1px solid #ccc;">
+
+  <!-- 会社名 -->
+  <input id="companyInput"
+         placeholder="会社名（例：安楽寺）"
+         style="padding:10px;font-size:16px;margin-bottom:8px;border-radius:8px;border:1px solid #ccc;">
+
+  <textarea id="editText"></textarea>
+
+  <button id="confirmEdit" style="background:#1976d2;color:#fff;">確定して履歴に保存</button>
+  <button id="cancelEdit" class="danger">キャンセル</button>
 </div>
 
 <script src="app.js"></script>
